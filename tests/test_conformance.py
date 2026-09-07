@@ -43,9 +43,9 @@ target = ROOT / config["publish_dir"]
 # This gate asserts all four. A rashid below the floor reports a pass for a
 # catalog that it never checked against those four rules. The upper bound stops
 # an unreviewed 0.2 rule set from changing what this gate means.
-MIN_VERSION = (0, 1, 5)
+MIN_VERSION = (0, 1, 8)
 MAX_VERSION = (0, 2, 0)
-SPEC = "rashid>=0.1.5,<0.2.0"
+SPEC = "rashid>=0.1.8,<0.2.0"
 INSTALL = f"python -m pip install '{SPEC}'"
 
 

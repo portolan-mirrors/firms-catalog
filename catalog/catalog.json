@@ -2,12 +2,17 @@
   "type": "Catalog",
   "stac_version": "1.1.0",
   "stac_extensions": [
-    "https://schemas.portolan-sdi.org/portolan/v0.1.1/schema.json"
+    "https://schemas.portolan-sdi.org/portolan/v0.2.0/schema.json"
   ],
-  "id": "example-catalog",
-  "title": "Example Catalog",
-  "description": "TODO(setup): one or two sentences saying what this catalog holds, who produced the data, and who it is for. A person and an agent both read this first.",
+  "id": "nasa-firms-active-fire",
+  "title": "NASA FIRMS Active Fire Detections",
+  "description": "Global satellite active fire and thermal anomaly detections from NASA's Fire Information for Resource Management System (FIRMS), mirrored as cloud-native GeoParquet. Covers MODIS (Terra and Aqua, 1 km, from November 2000) and VIIRS (Suomi-NPP, NOAA-20 and NOAA-21, 375 m, from January 2012) in a single queryable table partitioned by year. Near-real-time detections refresh hourly and are replaced by science-quality data as NASA finalizes it. This is a mirror; NASA LANCE FIRMS is the authoritative source. Read the [agent guide](AGENTS.md) before you query it.",
   "links": [
+    {
+      "rel": "self",
+      "href": "https://data.source.coop/portolan-mirrors/firms-catalog/catalog.json",
+      "type": "application/json"
+    },
     {
       "rel": "root",
       "href": "./catalog.json",
@@ -27,13 +32,19 @@
     },
     {
       "rel": "vcs",
-      "href": "https://github.com/TODO(setup)",
+      "href": "https://github.com/portolan-mirrors/firms-catalog",
       "title": "Source repository"
     },
     {
       "rel": "issues",
-      "href": "https://github.com/TODO(setup)/issues",
+      "href": "https://github.com/portolan-mirrors/firms-catalog/issues",
       "title": "Issue tracker"
+    },
+    {
+      "rel": "via",
+      "href": "https://firms.modaps.eosdis.nasa.gov/",
+      "type": "text/html",
+      "title": "NASA FIRMS"
     }
   ]
 }

@@ -33,3 +33,6 @@ __pycache__/
 *.pyc
 .venv/
 .ruff_cache/
+
+# Local python venv for the pinned validator
+.venv/
