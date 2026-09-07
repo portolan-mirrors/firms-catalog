@@ -32,7 +32,7 @@ ZSTD_LEVEL = 15
 def connect(mem: str, tmp: Path) -> duckdb.DuckDBPyConnection:
     con = duckdb.connect()
     con.execute("INSTALL spatial; LOAD spatial;")
-    con.execute(f"SET memory_limit='{mem}'; SET temp_directory='{tmp}'; SET preserve_insertion_order=false;")
+    con.execute(f"SET memory_limit='{mem}'; SET temp_directory='{tmp}';")
     return con
 
 

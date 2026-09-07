@@ -11,12 +11,14 @@
     {
       "rel": "self",
       "href": "https://data.source.coop/portolan-mirrors/firms-catalog/catalog.json",
-      "type": "application/json"
+      "type": "application/json",
+      "title": "NASA FIRMS Active Fire Detections"
     },
     {
       "rel": "root",
       "href": "./catalog.json",
-      "type": "application/json"
+      "type": "application/json",
+      "title": "NASA FIRMS Active Fire Detections"
     },
     {
       "rel": "describedby",

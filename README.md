@@ -1,92 +1,99 @@
-# Portolan Catalog Template
+# firms-catalog
 
-A starting point for a [Portolan](https://www.portolan-sdi.org/) catalog whose
-metadata lives in git. Click **Use this template**, work through
-[SETUP.md](SETUP.md), and you have a repository whose CI validates every change
-before it publishes.
+A [Portolan](https://github.com/portolan-sdi/portolan-spec) catalog mirroring
+**NASA FIRMS active fire detections** as cloud-native GeoParquet.
 
-**`catalog/` is the published catalog.** Everything in it is published.
-Everything outside it never is. That boundary is the whole publish contract,
-and `tools/publish.py` has no flag or config key that widens it.
+Catalog metadata lives in this repository. The data lives on
+[Source Cooperative](https://source.coop/portolan-mirrors/firms-catalog).
+CI validates every change to the metadata; the data is rebuilt on a schedule.
 
-## Three kinds of file
+- **Published catalog**: https://source.coop/portolan-mirrors/firms-catalog
+- **STAC root**: https://data.source.coop/portolan-mirrors/firms-catalog/catalog.json
+- **Upstream**: https://firms.modaps.eosdis.nasa.gov/
 
-| Kind | Where | Example |
-|---|---|---|
-| Tracked and published | inside `catalog/` | STAC JSON, `README.md`, `AGENTS.md`, thumbnails, logos |
-| Tracked, never published | outside `catalog/` | `tools/`, `tests/`, `docs/`, this README, `catalog.publish.yaml` |
-| Neither | gitignored | GeoParquet, COGs, PMTiles, credentials |
+## What it publishes
 
-The data lives in object storage next to the published metadata. The
-repository references it by URL and never stores it.
+One collection, `detections`: every MODIS and VIIRS active fire detection from
+November 2000 to today, about 575 million rows, as one year-partitioned table.
 
-## Layout
+```
+detections/year=<YYYY>/detections.parquet
+```
 
-| Path | What it is |
+GeoParquet 2.0 (native Parquet `GEOMETRY` logical type), zstd level 15,
+100k-row row groups, rows ordered by `(_month, _hilbert)`.
+
+## Design decisions worth knowing
+
+**Year-only partitioning.** The path carries time and nothing else. A spatial
+partition key was considered and rejected: hive pruning only fires when the query
+filters on the partition column, and no client writes `WHERE zone = 2` in
+response to a bounding-box filter. Spatial pruning comes from Hilbert ordering
+plus row-group statistics, which an ordinary `ST_Within` predicate triggers for
+free. Portolan's formats spec currently requires a spatial path structure for all
+partitioned collections, which conflicts with the partition extension's own
+`temporal` strategy; that is filed as
+[portolan-spec#196](https://github.com/portolan-sdi/portolan-spec/issues/196).
+
+**Sorted by `(_month, _hilbert)`, not pure Hilbert.** Pure Hilbert scatters every
+month across the file and removes month-level pruning. Sorting by month first and
+Hilbert within it keeps both. The two helper columns cost about 15% of file size
+and are documented in `catalog/AGENTS.md`.
+
+**The API, not the yearly country archives.** FIRMS publishes yearly per-country
+zips that download much faster. They are clipped to country boundaries and drop
+offshore detections — measured on 2000-11-05, 3 offshore rows against the API's
+58. Fidelity wins over speed here.
+
+**NRT and science-quality in one table.** FIRMS guarantees non-overlapping date
+ranges per sensor between its `_SP` and `_NRT` sources, so the two cannot
+double-count. A `quality` column marks which is which.
+
+## The pipeline
+
+| Script | Does |
 |---|---|
-| `catalog/` | The published tree, synced 1:1 to object storage |
-| `catalog.publish.yaml` | Where it publishes, and under what public URL |
-| `tools/publish.py` | The sync. Dry run by default |
-| `tools/upload_data.py` | The data upload. Dry run by default |
-| `tests/` | The gates CI runs on every pull request |
-| `docs/conformance.md` | Any validator finding this catalog accepts, and why |
-| `SETUP.md` | The checklist. Delete it when you are done |
-
-## Publish
+| `tools/firms_fetch.py` | Fetches one API window per chunk and normalizes it to Parquet. Resumable: existing chunks are skipped. |
+| `tools/firms_backfill.sh` | Drives every sensor over its full range, reading the date bounds from the FIRMS `data_availability` endpoint rather than hard-coding them. |
+| `tools/firms_build.py` | Compacts chunks into per-year GeoParquet 2.0, sorted and row-grouped for cloud-native access. |
+| `tools/publish.py` | Syncs `catalog/` to the bucket. Template-provided; never widened beyond `catalog/`. |
+| `tools/upload_data.py` | Uploads staged data files. Template-provided. |
 
 ```bash
-python3 tools/publish.py            # dry run: what would change
-python3 tools/publish.py --confirm  # upload; needs AWS credentials
+export FIRMS_MAP_KEY=...          # https://firms.modaps.eosdis.nasa.gov/api/map_key/
+./tools/firms_backfill.sh ./catalog-staging/chunks
+python3 tools/firms_build.py --chunks ./catalog-staging/chunks \
+    --out ./catalog-staging/publish/detections
 ```
 
-It never deletes. Removing a file from `catalog/` does not unpublish it, so
-delete the object yourself if that is what you meant.
+### API rate limits shape the schedule
 
-## Upload the data
+The FIRMS map key allows 5,000 transactions per 10 minutes, and a request costs
+far more than one transaction. Measured:
 
-The data is too large for git, so it lives outside `catalog/`.
-`tools/upload_data.py` carries it to the same bucket prefix. Set `data_dir` in
-`catalog.publish.yaml` to the directory that holds it.
-
-```bash
-python3 tools/upload_data.py            # dry run: what would change
-python3 tools/upload_data.py --confirm  # upload; needs AWS credentials
-```
-
-Both scripts share one set of rules. `upload_data.py` imports the sentinel
-guard, the content types, the change detection, and the upload pool from
-`publish.py`. It changes one thing, the directory it walks. Only the suffixes
-in its allow-list upload, so staged scratch files stay out of the bucket.
-
-## Test
-
-```bash
-python3 tests/run_all.py
-```
-
-| Gate | What it checks |
+| request | transactions |
 |---|---|
-| `test_setup.py` | Template placeholders are all edited, or all untouched |
-| `test_links.py` | Every relative link and asset href resolves |
-| `test_publish.py` | Nothing outside `catalog/` can be uploaded |
-| `test_upload_data.py` | Only staged files with an allowed suffix upload |
-| `test_stac_valid.py` | Valid STAC 1.1.0, via `stac-check` |
-| `test_conformance.py` | Portolan conformance, via `rashid` |
+| small bbox, 1 day | 2 |
+| world, 1 day | 36 |
+| world, 5 days | 180 |
 
-The two validator gates skip when their tools are absent, so a clean checkout
-runs with no setup. CI installs both and enforces them.
+Cost scales with area × days, so batching days saves nothing. A full backfill is
+roughly 678,000 transactions, about 22 hours of wall-clock at the default limit.
+The published docs say the area API accepts a 10-day range; the server rejects
+anything above 5.
 
-## What this template does not decide
+## Working on this repository
 
-How a published catalog points back at the repository that maintains it. Three
-encodings are in use across real catalogs and none is standardized, so this
-template ships none of them rather than freezing one in by default. The
-tradeoffs are in
-[portolan-spec#145](https://github.com/portolan-sdi/portolan-spec/issues/145)
-and in the
-[git-backed catalogs guidance](https://github.com/portolan-sdi/portolan-spec/blob/main/specs/best-practices/git-backed-catalogs.md).
+```bash
+python3 -m venv .venv && .venv/bin/pip install 'rashid>=0.1.8,<0.2.0'
+python3 tests/run_all.py          # gates: conformance, links, STAC validity
+python3 tools/publish.py          # dry run
+python3 tools/publish.py --confirm
+```
+
+Data files never enter git. `.gitignore` blocks the common formats.
 
 ## License
 
-Apache-2.0, covering the tooling in this repository. The data you catalog
-carries its own license, which belongs in `catalog/README.md`.
+Data: CC0-1.0, from NASA. See `catalog/README.md` for the acknowledgement NASA
+asks you to carry. Repository code: see `LICENSE`.
