@@ -127,7 +127,7 @@ maplibregl.addProtocol("pmtiles", new pmtiles.Protocol().tile);
 // works with no configuration; ?tiles=./fire.pmtiles points it at a local
 // build for development.
 const PUBLISHED_TILES =
-  "https://data.source.coop/portolan-mirrors/firms-catalog/fire.pmtiles";
+  "https://data.source.coop/portolan-mirrors/firms-catalog/detections/fire.pmtiles";
 const TILES = new URLSearchParams(location.search).get("tiles") || PUBLISHED_TILES;
 
 const AGG_LAYER="aggregate", PT_LAYER="features";
