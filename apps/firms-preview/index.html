@@ -65,7 +65,7 @@
 <div id="map"></div>
 <div class="panel">
   <div class="hd"><h1>FIRMS tiling preview</h1>
-    <div class="sub" id="hdsub">7-day NRT window · 1,915,961 detections</div></div>
+    <div class="sub" id="hdsub">loading…</div></div>
 
   <div class="sec"><div class="grp">Mode</div>
     <div class="seg" id="mode">
@@ -129,6 +129,23 @@ maplibregl.addProtocol("pmtiles", new pmtiles.Protocol().tile);
 const PUBLISHED_TILES =
   "https://data.source.coop/portolan-mirrors/firms-catalog/detections/fire.pmtiles";
 const TILES = new URLSearchParams(location.search).get("tiles") || PUBLISHED_TILES;
+const COLLECTION =
+  "https://data.source.coop/portolan-mirrors/firms-catalog/detections/collection.json";
+
+// Row count and time range come from the published collection, not a literal.
+// A hardcoded count goes stale the moment the hourly refresh runs.
+async function loadSummary(){
+  try{
+    const c = await (await fetch(COLLECTION)).json();
+    const n = c["table:row_count"];
+    const iv = ((c.extent||{}).temporal||{}).interval||[[null,null]];
+    const d = t => t ? t.slice(0,10) : "?";
+    document.getElementById("hdsub").textContent =
+      `${d(iv[0][0])} → ${d(iv[0][1])} · ${(n||0).toLocaleString()} detections`;
+  }catch(e){
+    document.getElementById("hdsub").textContent = "NASA FIRMS active fire detections";
+  }
+}
 
 const AGG_LAYER="aggregate", PT_LAYER="features";
 const RAMPS={
@@ -321,6 +338,7 @@ function updateMode(){
 }
 
 map.on("load",async ()=>{
+  loadSummary();
   await loadBands(TILES);
   map.addSource("fire",{type:"vector",url:"pmtiles://"+TILES});
   map.addLayer({id:AGG_LAYER,type:"fill",source:"fire","source-layer":AGG_LAYER,
