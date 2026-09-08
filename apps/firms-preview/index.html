@@ -1,0 +1,273 @@
+<!doctype html><html><head><meta charset="utf-8">
+<title>FIRMS tiling preview</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<link href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet">
+<script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+<script src="https://unpkg.com/pmtiles@3.2.0/dist/pmtiles.js"></script>
+<style>
+ :root{--bg:#0d1117;--panel:#12171f;--line:#2b3440;--fg:#e6edf3;--dim:#8b949e;
+       --acc:#f78166;--warn:#d29922}
+ *{box-sizing:border-box}
+ html,body{margin:0;height:100%;background:var(--bg);color:var(--fg);
+   font:12.5px/1.45 ui-sans-serif,-apple-system,"Segoe UI",sans-serif}
+ #map{position:absolute;inset:0}
+ .panel{position:absolute;top:10px;left:10px;width:302px;background:var(--panel);
+   border:1px solid var(--line);border-radius:11px;padding:0;z-index:3;
+   box-shadow:0 10px 34px rgba(0,0,0,.6);max-height:calc(100% - 20px);
+   overflow:auto;backdrop-filter:blur(6px)}
+ .hd{padding:13px 14px 10px;border-bottom:1px solid var(--line)}
+ h1{margin:0;font-size:13.5px}
+ .sub{color:var(--dim);font-size:10.5px;margin-top:2px}
+ .sec{padding:11px 14px;border-bottom:1px solid var(--line)}
+ .sec:last-child{border-bottom:0}
+ .grp{font-size:9.5px;text-transform:uppercase;letter-spacing:1px;color:var(--dim);
+   margin-bottom:7px;display:flex;justify-content:space-between;align-items:center}
+ .seg{display:flex;background:#0b0f15;border:1px solid var(--line);border-radius:7px;overflow:hidden}
+ .seg button{flex:1;background:none;border:0;color:var(--dim);padding:6px 4px;
+   font:inherit;font-size:11px;cursor:pointer}
+ .seg button.on{background:var(--acc);color:#12171f;font-weight:600}
+ select,input[type=range]{width:100%}
+ select{background:#0b0f15;color:var(--fg);border:1px solid var(--line);
+   border-radius:6px;padding:5px 7px;font:inherit;font-size:11.5px}
+ .chips{display:flex;flex-wrap:wrap;gap:4px}
+ .chip{border:1px solid var(--line);background:#0b0f15;color:var(--dim);
+   border-radius:20px;padding:3px 9px;font-size:10.5px;cursor:pointer;user-select:none}
+ .chip.on{border-color:var(--acc);color:var(--fg);background:rgba(247,129,102,.16)}
+ .legend{display:flex;flex-direction:column;gap:2px}
+ .row{display:flex;align-items:center;gap:7px;font-size:10.5px;color:var(--dim)}
+ .sw{width:15px;height:10px;border-radius:2px;flex:none}
+ .kv{display:flex;justify-content:space-between;font-size:10.5px;color:var(--dim);padding:1px 0}
+ .kv b{color:var(--fg);font-variant-numeric:tabular-nums}
+ .note{font-size:10px;color:var(--warn);line-height:1.35;margin-top:6px}
+ input[type=range]{accent-color:var(--acc)}
+ #pop{position:absolute;right:10px;top:10px;width:224px;background:var(--panel);
+   border:1px solid var(--line);border-radius:11px;padding:11px 13px;z-index:3;display:none}
+ #pop table{width:100%;border-collapse:collapse;font-size:10.5px}
+ #pop td{padding:1.5px 0;color:var(--dim)}
+ #pop td:last-child{text-align:right;color:var(--fg);font-variant-numeric:tabular-nums}
+ .x{float:right;cursor:pointer;color:var(--dim)}
+</style></head><body>
+<div id="map"></div>
+<div class="panel">
+  <div class="hd"><h1>FIRMS tiling preview</h1>
+    <div class="sub" id="hdsub">7-day NRT window · 1,915,961 detections</div></div>
+
+  <div class="sec"><div class="grp">Mode</div>
+    <div class="seg" id="mode">
+      <button data-m="auto" class="on">Auto @ z10</button>
+      <button data-m="agg">Aggregate</button>
+      <button data-m="pts">Points</button></div>
+    <div class="kv" style="margin-top:7px"><span>showing</span><b id="showing">aggregate</b></div>
+  </div>
+
+  <div class="sec"><div class="grp">Colour by</div>
+    <select id="metric">
+      <option value="count">Detections per cell</option>
+      <option value="avg_frp">Average FRP (MW)</option>
+      <option value="max_frp">Peak FRP (MW)</option>
+      <option value="sum_frp">Total FRP (MW)</option>
+    </select>
+    <div id="lg" class="legend" style="margin-top:8px"></div>
+  </div>
+
+  <div class="sec"><div class="grp"><span>Min FRP</span><b id="frpv" style="color:var(--fg)">0 MW</b></div>
+    <input type="range" id="frp" min="0" max="500" step="5" value="0">
+    <div class="sub" id="frpnote">Aggregate filters on the coloured FRP metric; points filter on their own FRP.</div>
+  </div>
+
+  <div class="sec"><div class="grp">Day</div>
+    <div class="chips" id="days"></div></div>
+
+  <div class="sec"><div class="grp">Sensor</div>
+    <div class="chips" id="sensors"></div></div>
+
+  <div class="sec"><div class="grp">Day / night</div>
+    <div class="seg" id="dn">
+      <button data-v="all" class="on">Both</button>
+      <button data-v="D">Day</button>
+      <button data-v="N">Night</button></div>
+    <div class="note" id="xnote" style="display:none"></div>
+  </div>
+
+  <div class="sec">
+    <div class="kv"><span>zoom</span><b id="z">2.0</b></div>
+    <div class="kv"><span>features drawn</span><b id="nf">–</b></div>
+  </div>
+</div>
+<div id="pop"><span class="x" onclick="document.getElementById('pop').style.display='none'">✕</span>
+  <div class="grp">Feature</div><table id="pt"></table></div>
+<script>
+maplibregl.addProtocol("pmtiles", new pmtiles.Protocol().tile);
+
+const AGG_LAYER="aggregate", PT_LAYER="features";
+const RAMPS={
+  count:   {stops:[[1,"#2c3d5a"],[5,"#3f6d8f"],[20,"#59a1a0"],[75,"#a8c268"],[250,"#f2b134"],[1000,"#e8722c"],[4000,"#d1382a"]],unit:""},
+  avg_frp: {stops:[[0,"#2c3d5a"],[5,"#3f6d8f"],[15,"#59a1a0"],[40,"#a8c268"],[100,"#f2b134"],[250,"#e8722c"],[500,"#d1382a"]],unit:"MW"},
+  max_frp: {stops:[[0,"#2c3d5a"],[25,"#3f6d8f"],[75,"#59a1a0"],[200,"#a8c268"],[600,"#f2b134"],[1500,"#e8722c"],[3000,"#d1382a"]],unit:"MW"},
+  sum_frp: {stops:[[0,"#2c3d5a"],[100,"#3f6d8f"],[500,"#59a1a0"],[2000,"#a8c268"],[8000,"#f2b134"],[30000,"#e8722c"],[100000,"#d1382a"]],unit:"MW"},
+  frp:     {stops:[[0,"#4a5bd4"],[10,"#39a0a8"],[50,"#c9cf4a"],[200,"#f0932b"],[1000,"#d63031"]],unit:"MW"},
+};
+const SENSORS=[["viirs_snpp","S-NPP"],["viirs_noaa20","NOAA-20"],["viirs_noaa21","NOAA-21"],["modis","MODIS"]];
+const SENSOR_VAL={viirs_snpp:"VIIRS_SNPP",viirs_noaa20:"VIIRS_NOAA20",viirs_noaa21:"VIIRS_NOAA21",modis:"MODIS"};
+
+let S={mode:"auto",metric:"count",minFrp:0,day:null,sensor:null,dn:"all",days:[]};
+
+const map=new maplibregl.Map({container:"map",hash:true,
+  style:{version:8,sources:{base:{type:"raster",
+    tiles:["https://tile.openstreetmap.org/{z}/{x}/{y}.png"],tileSize:256,
+    attribution:"&copy; OpenStreetMap"}},
+   layers:[{id:"base",type:"raster",source:"base",
+     paint:{"raster-opacity":.34,"raster-saturation":-.92,"raster-brightness-max":.55}}]},
+  center:[20,0],zoom:2,minZoom:-2,renderWorldCopies:true});
+window._map=map;
+
+const step=(field,stops)=>{const e=["step",["coalesce",["get",field],0],stops[0][1]];
+  for(let i=1;i<stops.length;i++)e.push(stops[i][0],stops[i][1]);return e;};
+const fmt=n=>n>=1000?(n/1000).toFixed(n>=10000?0:1)+"k":n;
+
+// Which aggregate column currently represents "count", given the active facet.
+// One pivot dimension at a time: the aggregate holds no cross-tabs.
+function activeCountField(){
+  if(S.day)    return "count_"+S.day;
+  if(S.sensor) return "count_"+S.sensor;
+  if(S.dn!=="all") return S.dn==="D"?"count_d":"count_n";
+  return "count";
+}
+function facetCount(){return [S.day,S.sensor,S.dn!=="all"?S.dn:null].filter(Boolean).length;}
+
+function aggColorField(){
+  return S.metric==="count" ? activeCountField() : S.metric;
+}
+
+function apply(){
+  if(!map.getLayer(AGG_LAYER))return;
+  const cf=activeCountField(), mf=aggColorField(), ramp=RAMPS[S.metric];
+
+  map.setPaintProperty(AGG_LAYER,"fill-color",step(mf,ramp.stops));
+  const aggFilter=["all",[">",["coalesce",["get",cf],0],0]];
+  if(S.minFrp>0){
+    const f=S.metric==="count"?"max_frp":S.metric;
+    aggFilter.push([">=",["coalesce",["get",f],0],S.minFrp]);
+  }
+  map.setFilter(AGG_LAYER,aggFilter);
+
+  if(map.getLayer(PT_LAYER)){
+    map.setPaintProperty(PT_LAYER,"circle-color",step("frp",RAMPS.frp.stops));
+    const pf=["all"];
+    if(S.minFrp>0)pf.push([">=",["coalesce",["get","frp"],0],S.minFrp]);
+    if(S.day)pf.push(["==",["get","day"],S.day]);
+    if(S.sensor)pf.push(["==",["get","sensor"],SENSOR_VAL[S.sensor]]);
+    if(S.dn!=="all")pf.push(["==",["get","daynight"],S.dn]);
+    map.setFilter(PT_LAYER,pf.length>1?pf:null);
+  }
+
+  // legend
+  const r=RAMPS[S.mode==="pts"?"frp":S.metric];
+  document.getElementById("lg").innerHTML=r.stops.map((s,i)=>{
+    const hi=r.stops[i+1]?r.stops[i+1][0]:null;
+    return `<div class="row"><span class="sw" style="background:${s[1]}"></span>`+
+           `${hi?`${fmt(s[0])}–${fmt(hi)}`:`${fmt(s[0])}+`} ${r.unit}</div>`;}).join("");
+
+  const xn=document.getElementById("xnote");
+  if(facetCount()>1){
+    xn.style.display="block";
+    xn.textContent="Aggregate cells hold one pivot per dimension, not cross-tabs. "+
+      "With more than one facet active the cells show "+activeCountField()+
+      " while the points honour every filter.";
+  } else xn.style.display="none";
+  renderControls();
+  updateMode();
+}
+
+function updateMode(){
+  const z=map.getZoom();
+  let showAgg,showPts;
+  if(S.mode==="auto"){showAgg=z<10;showPts=z>=10;}
+  else if(S.mode==="agg"){showAgg=true;showPts=false;}
+  else {showAgg=false;showPts=true;}
+  if(map.getLayer(AGG_LAYER))map.setLayoutProperty(AGG_LAYER,"visibility",showAgg?"visible":"none");
+  if(map.getLayer(PT_LAYER))map.setLayoutProperty(PT_LAYER,"visibility",showPts?"visible":"none");
+  document.getElementById("showing").textContent=showAgg?"aggregate":"points";
+}
+
+map.on("load",()=>{
+  map.addSource("fire",{type:"vector",url:"pmtiles://./fire.pmtiles"});
+  map.addLayer({id:AGG_LAYER,type:"fill",source:"fire","source-layer":AGG_LAYER,
+    paint:{"fill-color":step("count",RAMPS.count.stops),"fill-opacity":.74,
+           "fill-outline-color":"rgba(0,0,0,.22)"}});
+  map.addLayer({id:PT_LAYER,type:"circle",source:"fire","source-layer":PT_LAYER,
+    layout:{visibility:"none"},
+    paint:{"circle-radius":["interpolate",["linear"],["zoom"],9,1.6,12,3,15,5.5],
+           "circle-color":step("frp",RAMPS.frp.stops),"circle-opacity":.9}});
+  renderControls(); apply();
+});
+
+// The chip DOM is rendered FROM state, never edited independently. An earlier
+// version toggled classes on click and separately re-rendered on discovery,
+// which let the visible selection and S drift apart.
+function renderControls(){
+  document.querySelectorAll("#mode button").forEach(b=>
+    b.classList.toggle("on", b.dataset.m===S.mode));
+  document.querySelectorAll("#dn button").forEach(b=>
+    b.classList.toggle("on", b.dataset.v===S.dn));
+  document.getElementById("metric").value=S.metric;
+  const dc=document.getElementById("days");
+  dc.innerHTML=[`<span class="chip${S.day?"":" on"}" data-d="">All</span>`]
+    .concat(S.days.map(d=>
+      `<span class="chip${S.day===d?" on":""}" data-d="${d}">${d.slice(4,6)}/${d.slice(6,8)}</span>`))
+    .join("");
+  const sc=document.getElementById("sensors");
+  sc.innerHTML=[`<span class="chip${S.sensor?"":" on"}" data-s="">All</span>`]
+    .concat(SENSORS.map(([k,l])=>
+      `<span class="chip${S.sensor===k?" on":""}" data-s="${k}">${l}</span>`))
+    .join("");
+}
+document.getElementById("days").onclick=e=>{
+  const d=e.target.dataset.d; if(d===undefined)return;
+  S.day=d||null; apply();
+};
+document.getElementById("sensors").onclick=e=>{
+  const v=e.target.dataset.s; if(v===undefined)return;
+  S.sensor=v||null; apply();
+};
+
+document.getElementById("mode").onclick=e=>{
+  if(!e.target.dataset.m)return; S.mode=e.target.dataset.m; apply();};
+document.getElementById("dn").onclick=e=>{
+  if(!e.target.dataset.v)return; S.dn=e.target.dataset.v; apply();};
+document.getElementById("metric").onchange=e=>{S.metric=e.target.value;apply();};
+document.getElementById("frp").oninput=e=>{
+  S.minFrp=+e.target.value;
+  document.getElementById("frpv").textContent=S.minFrp+" MW";apply();};
+
+map.on("move",()=>{document.getElementById("z").textContent=map.getZoom().toFixed(1);updateMode();});
+map.on("idle",()=>{
+  const ly=[AGG_LAYER,PT_LAYER].filter(l=>map.getLayer(l)&&
+    map.getLayoutProperty(l,"visibility")!=="none");
+  document.getElementById("nf").textContent=ly.length
+    ? map.queryRenderedFeatures({layers:ly}).length.toLocaleString() : "0";
+  // discover day columns once
+  if(!S.days.length){
+    const f=map.querySourceFeatures("fire",{sourceLayer:AGG_LAYER});
+    if(f.length){
+      S.days=Object.keys(f[0].properties).filter(k=>/^count_\d{8}$/.test(k))
+        .map(k=>k.slice(6)).sort();
+      if(S.days.length)renderControls();
+    }
+  }
+});
+map.on("click",e=>{
+  const ly=[AGG_LAYER,PT_LAYER].filter(l=>map.getLayer(l)&&
+    map.getLayoutProperty(l,"visibility")!=="none");
+  const f=map.queryRenderedFeatures(e.point,{layers:ly});
+  const pop=document.getElementById("pop");
+  if(!f.length){pop.style.display="none";return;}
+  const p=f[0].properties;
+  document.getElementById("pt").innerHTML=Object.entries(p)
+    .filter(([k,v])=>k!=="a5_cell"&&v!==0&&v!==null&&v!=="")
+    .slice(0,16)
+    .map(([k,v])=>`<tr><td>${k}</td><td>${typeof v==="number"
+      ?(+v).toLocaleString(undefined,{maximumFractionDigits:2}):v}</td></tr>`).join("");
+  pop.style.display="block";
+});
+</script></body></html>

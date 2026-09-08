@@ -1,88 +1,142 @@
 #!/usr/bin/env python3
-"""Build A5 hexagon aggregates of the detections, at three zoom levels each.
+"""Build A5 aggregates of the detections, then one combined multi-level tileset.
 
 Why aggregates exist: the full record is hundreds of millions of points. No
-tileset renders that at full resolution, and no browser wants it. An aggregate
-answers "where does fire happen, how intensely, and how does that change" in a
-file small enough to open instantly.
+tileset renders that at full resolution. An aggregate answers "where does fire
+happen, how intensely, and how does that change" in a file that opens instantly.
 
-`gpio process aggregate a5` pivots exactly one categorical column per run
-(a second --breakdown replaces the first, it does not add to it), so each
-dimension is its own product. Every product carries the same FRP rollups, so
-they stay comparable.
+`gpio process aggregate a5` pivots exactly one categorical column per run. A
+second --breakdown replaces the first rather than adding to it. So each
+dimension is aggregated separately and the results are joined on a5_cell, which
+is safe because every run uses the same resolution and therefore the same cells.
 
-`gpio process overview` then rolls each base level up to coarser A5
-resolutions. Counts and sums roll up exactly; averages are count-weighted.
+The combined file carries:
+  count, sum_frp, avg_frp, max_frp   rollups shared by every product
+  count_<day>                        one per acquisition day
+  count_<sensor>                     MODIS and the three VIIRS platforms
+  count_d / count_n                  day and night
+
+`gpio process overview` then rolls it up to coarser A5 levels, and
+`gpio pmtiles pyramid --include-features` puts the aggregate bands and the raw
+points in ONE archive, so a viewer can switch at a zoom threshold with no
+second request.
 """
 from __future__ import annotations
 
 import argparse
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
+import duckdb
+
 BASE_RES = 8
-OVERVIEWS = "5,2"
+OVERVIEWS = "6,4"   # r2 (143 cells) is unreadable at full zoom-out; r4 (1,224) reads well
 METRICS = "sum:frp,avg:frp,max:frp"
+FEATURES_MIN_ZOOM = 10
 
-# product name -> column pivoted into count_<value> columns
-PRODUCTS = {
-    "by-year":     "year",      # long-term trend, fills in as the backfill lands
-    "by-month":    "month",     # seasonality
-    "by-sensor":   "sensor",    # platform contribution and cross-checks
-    "by-daynight": "daynight",  # night detections indicate active flaming
-}
+# breakdown column -> how many pivoted values to allow
+DIMENSIONS = {"day": 40, "sensor": 8, "daynight": 4}
 
 
-def run(cmd: list[str]) -> None:
+def run(cmd: list[str], quiet: bool = True) -> None:
     r = subprocess.run(cmd, capture_output=True, text=True)
     if r.returncode != 0:
-        print(r.stdout[-800:], r.stderr[-800:], file=sys.stderr)
-        raise SystemExit(f"failed: {' '.join(cmd[:4])}")
-    print("   ", r.stdout.strip().splitlines()[-1] if r.stdout.strip() else "ok")
+        print(r.stdout[-1200:], r.stderr[-1200:], file=sys.stderr)
+        raise SystemExit(f"failed: {' '.join(cmd[:5])}")
+    if not quiet and r.stdout.strip():
+        print("   ", r.stdout.strip().splitlines()[-1])
 
 
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--data", required=True, help="detections/ dir holding year=*/")
-    ap.add_argument("--out", required=True, help="aggregates output dir")
+    ap.add_argument("--out", required=True, help="aggregate output dir")
+    ap.add_argument("--tiles", help="also write a combined pyramid here")
     ap.add_argument("--resolution", type=int, default=BASE_RES)
     ap.add_argument("--levels", default=OVERVIEWS)
+    ap.add_argument("--features-min-zoom", type=int, default=FEATURES_MIN_ZOOM)
     a = ap.parse_args()
 
     data, out = Path(a.data), Path(a.out)
-    parts = sorted(data.glob("year=*/detections.parquet"))
-    if not parts:
+    if not sorted(data.glob("year=*/detections.parquet")):
         raise SystemExit(f"no year partitions under {data}")
     out.mkdir(parents=True, exist_ok=True)
 
-    # The published table carries no month column, because the detections file
-    # ships no sort-key columns. Stage a temp input that adds year and month for
-    # the pivot. This never reaches the published detections.
-    import duckdb, tempfile
-    tmpdir = tempfile.mkdtemp(prefix="firms-agg-")
-    src = str(Path(tmpdir) / "agg_input.parquet")
     con = duckdb.connect()
     con.execute("INSTALL spatial; LOAD spatial; SET memory_limit='6GB';")
+    tmp = Path(tempfile.mkdtemp(prefix="firms-agg-"))
+
+    # The published table ships no derived time columns, so add the pivot keys
+    # here. This staging file never reaches the published detections.
+    src = tmp / "input.parquet"
     con.execute(f"""
         COPY (SELECT * EXCLUDE (geometry),
                      CAST(year(acq_date) AS INTEGER) AS year,
                      CAST(month(acq_date) AS UTINYINT) AS month,
+                     strftime(acq_date, '%Y%m%d') AS day,
                      geometry
               FROM read_parquet('{data}/year=*/detections.parquet'))
         TO '{src}' (FORMAT PARQUET, COMPRESSION zstd)
     """)
-    print(f"staged aggregation input -> {src}")
+    print(f"staged pivot input -> {src}")
 
-    for name, column in PRODUCTS.items():
-        target = out / f"{name}.parquet"
-        print(f"[{name}] pivot on {column}")
-        run(["gpio", "process", "aggregate", "a5", src, str(target),
+    # One aggregate per dimension, same resolution so the cells line up.
+    parts = {}
+    for dim, limit in DIMENSIONS.items():
+        p = tmp / f"{dim}.parquet"
+        print(f"[{dim}] aggregate at r{a.resolution}")
+        run(["gpio", "process", "aggregate", "a5", str(src), str(p),
              "--resolution", str(a.resolution), "--metric", METRICS,
-             "--breakdown", column, "--out-geometry", "polygon",
-             "--geoparquet-version", "2.0"])
-        run(["gpio", "process", "overview", str(target), "--levels", a.levels])
-    print(f"\n{len(PRODUCTS)} product(s) x 3 level(s) -> {out}")
+             "--breakdown", dim, "--breakdown-limit", str(limit),
+             "--out-geometry", "polygon", "--geoparquet-version", "2.0"])
+        parts[dim] = p
+
+    # Join the pivots onto the first product, which supplies geometry and the
+    # shared rollups.
+    base = parts["day"]
+    others = [d for d in DIMENSIONS if d != "day"]
+    sel = ["b.* EXCLUDE (geometry)"]
+    joins = []
+    for i, d in enumerate(others):
+        al = f"j{i}"
+        cols = [c for c in con.execute(
+            f"SELECT column_name FROM (DESCRIBE SELECT * FROM '{parts[d]}')").fetchall()]
+        keep = [c[0] for c in cols if c[0].startswith("count_")]
+        sel += [f"{al}.\"{c}\"" for c in keep]
+        joins.append(f"JOIN '{parts[d]}' {al} USING (a5_cell)")
+    combined = out / "cells.parquet"
+    con.execute(f"""
+        COPY (SELECT {', '.join(sel)}, b.geometry
+              FROM '{base}' b {' '.join(joins)})
+        TO '{combined}' (FORMAT PARQUET, COMPRESSION zstd, COMPRESSION_LEVEL 15)
+    """)
+    n = con.execute(f"SELECT count(*) FROM '{combined}'").fetchone()[0]
+    print(f"combined -> {combined} ({n:,} cells)")
+
+    # gpio needs GeoParquet metadata on the joined output.
+    fixed = out / "cells_gp.parquet"
+    run(["gpio", "convert", "geoparquet", str(combined), str(fixed),
+         "--geoparquet-version", "2.0", "--compression", "zstd",
+         "--compression-level", "15"])
+    fixed.replace(combined)
+
+    print("[overview] rolling up")
+    run(["gpio", "process", "overview", str(combined), "--levels", a.levels, "--force"],
+        quiet=False)
+
+    if a.tiles:
+        tiles = Path(a.tiles); tiles.mkdir(parents=True, exist_ok=True)
+        archive = tiles / "fire.pmtiles"
+        print(f"[pyramid] aggregate bands + raw points from z{a.features_min_zoom}")
+        run(["gpio", "pmtiles", "pyramid", str(combined), str(archive),
+             "--levels", a.levels,
+             "--include-features",
+             "--features-source", str(src),
+             "--features-min-zoom", str(a.features_min_zoom), "-f"])
+        mb = archive.stat().st_size / 1e6
+        print(f"  {archive} ({mb:,.1f} MB)")
     return 0
 
 
