@@ -34,7 +34,12 @@
    border-radius:20px;padding:3px 9px;font-size:10.5px;cursor:pointer;user-select:none}
  .chip.on{border-color:var(--acc);color:var(--fg);background:rgba(247,129,102,.16)}
  .legend{display:flex;flex-direction:column;gap:2px}
- .row{display:flex;align-items:center;gap:7px;font-size:10.5px;color:var(--dim)}
+ .row{display:flex;align-items:center;gap:7px;font-size:10.5px;color:var(--dim);
+   cursor:pointer;padding:1px 3px;border-radius:4px;user-select:none}
+ .row:hover{background:rgba(255,255,255,.05)}
+ .row.off{opacity:.38}
+ .row.off .sw{box-shadow:inset 0 0 0 99px rgba(13,17,23,.72)}
+ .row .cnt{margin-left:auto;font-variant-numeric:tabular-nums;opacity:.75}
  .sw{width:15px;height:10px;border-radius:2px;flex:none}
  .kv{display:flex;justify-content:space-between;font-size:10.5px;color:var(--dim);padding:1px 0}
  .kv b{color:var(--fg);font-variant-numeric:tabular-nums}
@@ -71,7 +76,8 @@
     <div class="note" id="zwarn" style="display:none"></div>
   </div>
 
-  <div class="sec"><div class="grp">Colour by</div>
+  <div class="sec">
+    <div class="grp" id="lgtitle">Colour by</div>
     <select id="metric">
       <option value="count">Detections per cell</option>
       <option value="avg_frp">Average FRP (MW)</option>
@@ -79,6 +85,7 @@
       <option value="sum_frp">Total FRP (MW)</option>
     </select>
     <div id="lg" class="legend" style="margin-top:8px"></div>
+    <div class="sub" id="lghint" style="margin-top:7px">Click a class to hide it.</div>
   </div>
 
   <div class="sec"><div class="grp"><span>Min FRP</span><b id="frpv" style="color:var(--fg)">0 MW</b></div>
@@ -128,7 +135,7 @@ const SENSORS=[["viirs_snpp","S-NPP"],["viirs_noaa20","NOAA-20"],["viirs_noaa21"
 const SENSOR_VAL={viirs_snpp:"VIIRS_SNPP",viirs_noaa20:"VIIRS_NOAA20",viirs_noaa21:"VIIRS_NOAA21",modis:"MODIS"};
 
 let S={mode:"auto",metric:"count",minFrp:0,d0:0,d1:0,sensor:null,dn:"all",days:[],
-        bands:[],ptsMinZoom:null};
+        bands:[],ptsMinZoom:null,offAgg:new Set(),offPts:new Set()};
 
 // gpio records the zoom band of every aggregate level, and of the raw-point
 // band, in the archive metadata. Read it rather than assume a threshold: the
@@ -200,7 +207,9 @@ function apply(){
     : step(S.metric,ramp.stops);
 
   map.setPaintProperty(AGG_LAYER,"fill-color",colorExpr);
-  const aggFilter=["all",[">",cexpr,0]];
+  const aggValue = S.metric==="count" ? cexpr : ["coalesce",["get",S.metric],0];
+  const aggFilter=["all",[">",cexpr,0]]
+    .concat(hiddenClassFilters(aggValue, RAMPS[S.metric], S.offAgg));
   if(S.minFrp>0){
     const f=S.metric==="count"?"max_frp":S.metric;
     aggFilter.push([">=",["coalesce",["get",f],0],S.minFrp]);
@@ -217,15 +226,12 @@ function apply(){
     }
     if(S.sensor)pf.push(["==",["get","sensor"],SENSOR_VAL[S.sensor]]);
     if(S.dn!=="all")pf.push(["==",["get","daynight"],S.dn]);
+    for(const f of hiddenClassFilters(["coalesce",["get","frp"],0],RAMPS.frp,S.offPts))
+      pf.push(f);
     map.setFilter(PT_LAYER,pf.length>1?pf:null);
   }
 
-  // legend
-  const r=RAMPS[S.mode==="pts"?"frp":S.metric];
-  document.getElementById("lg").innerHTML=r.stops.map((s,i)=>{
-    const hi=r.stops[i+1]?r.stops[i+1][0]:null;
-    return `<div class="row"><span class="sw" style="background:${s[1]}"></span>`+
-           `${hi?`${fmt(s[0])}–${fmt(hi)}`:`${fmt(s[0])}+`} ${r.unit}</div>`;}).join("");
+  renderLegend();
 
   const xn=document.getElementById("xnote");
   if(facetCount()>1){
@@ -236,6 +242,52 @@ function apply(){
   } else xn.style.display="none";
   renderControls();
   updateMode();
+}
+
+// Which ramp the map is actually drawing right now. The legend must follow the
+// visible layer, not the aggregate metric: at point zooms the cells are gone
+// and a count ramp would describe nothing on screen.
+function activeRamp(){
+  return showingPoints() ? {key:"frp", ...RAMPS.frp, title:"Fire radiative power"}
+                         : {key:S.metric, ...RAMPS[S.metric],
+                            title:document.querySelector(`#metric option[value="${S.metric}"]`).textContent};
+}
+function offSet(){ return showingPoints() ? S.offPts : S.offAgg; }
+
+function renderLegend(){
+  const r=activeRamp(), off=offSet();
+  document.getElementById("lgtitle").textContent=r.title;
+  // The colour-by select only applies to the aggregate cells.
+  document.getElementById("metric").style.display=showingPoints()?"none":"";
+  document.getElementById("lg").innerHTML=r.stops.map((st,i)=>{
+    const hi=r.stops[i+1]?r.stops[i+1][0]:null;
+    return `<div class="row${off.has(i)?" off":""}" data-i="${i}">`+
+           `<span class="sw" style="background:${st[1]}"></span>`+
+           `${fmt(st[0])}${hi?`–${fmt(hi)}`:"+"} ${r.unit}</div>`;}).join("");
+}
+document.getElementById("lg").onclick=e=>{
+  const row=e.target.closest(".row"); if(!row)return;
+  const i=+row.dataset.i, off=offSet();
+  off.has(i)?off.delete(i):off.add(i);
+  apply();
+};
+
+// Exclude every hidden class from a layer filter. A class is the half-open
+// interval [lo, hi) of the ramp; the last one has no upper bound.
+function hiddenClassFilters(valueExpr, ramp, off){
+  const out=[];
+  for(const i of off){
+    const lo=ramp.stops[i][0], hi=ramp.stops[i+1]?ramp.stops[i+1][0]:null;
+    out.push(hi===null ? ["!",[">=",valueExpr,lo]]
+                       : ["!",["all",[">=",valueExpr,lo],["<",valueExpr,hi]]]);
+  }
+  return out;
+}
+function showingPoints(){
+  const z=map.getZoom(), cut=S.ptsMinZoom==null?10:S.ptsMinZoom;
+  if(S.mode==="agg")return false;
+  if(S.mode==="pts")return z>=cut;
+  return z>=cut;
 }
 
 function updateMode(){
@@ -319,12 +371,20 @@ document.getElementById("mode").onclick=e=>{
   if(!e.target.dataset.m)return; S.mode=e.target.dataset.m; apply();};
 document.getElementById("dn").onclick=e=>{
   if(!e.target.dataset.v)return; S.dn=e.target.dataset.v; apply();};
-document.getElementById("metric").onchange=e=>{S.metric=e.target.value;apply();};
+document.getElementById("metric").onchange=e=>{
+  S.metric=e.target.value; S.offAgg.clear();   // buckets mean something else now
+  apply();};
 document.getElementById("frp").oninput=e=>{
   S.minFrp=+e.target.value;
   document.getElementById("frpv").textContent=S.minFrp+" MW";apply();};
 
-map.on("move",()=>{document.getElementById("z").textContent=map.getZoom().toFixed(1);updateMode();});
+let lastPts=null;
+map.on("move",()=>{
+  document.getElementById("z").textContent=map.getZoom().toFixed(1);
+  updateMode();
+  const nowPts=showingPoints();
+  if(nowPts!==lastPts){lastPts=nowPts;apply();}   // ramp changed with the layer
+});
 map.on("idle",()=>{
   const ly=[AGG_LAYER,PT_LAYER].filter(l=>map.getLayer(l)&&
     map.getLayoutProperty(l,"visibility")!=="none");
