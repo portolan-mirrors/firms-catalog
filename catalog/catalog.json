@@ -53,6 +53,12 @@
       "href": "./detections/collection.json",
       "type": "application/json",
       "title": "Active Fire Detections (MODIS and VIIRS)"
+    },
+    {
+      "rel": "preview",
+      "href": "https://portolan-mirrors.github.io/firms-catalog/",
+      "type": "text/html",
+      "title": "Interactive fire map"
     }
   ],
   "updated": "2026-09-08T06:49:50Z",

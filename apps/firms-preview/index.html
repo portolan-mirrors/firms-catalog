@@ -123,6 +123,13 @@
 <script>
 maplibregl.addProtocol("pmtiles", new pmtiles.Protocol().tile);
 
+// Where the tiles live. Defaults to the published archive so the hosted app
+// works with no configuration; ?tiles=./fire.pmtiles points it at a local
+// build for development.
+const PUBLISHED_TILES =
+  "https://data.source.coop/portolan-mirrors/firms-catalog/fire.pmtiles";
+const TILES = new URLSearchParams(location.search).get("tiles") || PUBLISHED_TILES;
+
 const AGG_LAYER="aggregate", PT_LAYER="features";
 const RAMPS={
   count:   {stops:[[1,"#2c3d5a"],[5,"#3f6d8f"],[20,"#59a1a0"],[75,"#a8c268"],[250,"#f2b134"],[1000,"#e8722c"],[4000,"#d1382a"]],unit:""},
@@ -314,8 +321,8 @@ function updateMode(){
 }
 
 map.on("load",async ()=>{
-  await loadBands("./fire.pmtiles");
-  map.addSource("fire",{type:"vector",url:"pmtiles://./fire.pmtiles"});
+  await loadBands(TILES);
+  map.addSource("fire",{type:"vector",url:"pmtiles://"+TILES});
   map.addLayer({id:AGG_LAYER,type:"fill",source:"fire","source-layer":AGG_LAYER,
     paint:{"fill-color":step("count",RAMPS.count.stops),"fill-opacity":.74,
            "fill-outline-color":"rgba(0,0,0,.22)"}});

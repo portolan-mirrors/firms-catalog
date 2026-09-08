@@ -5,11 +5,12 @@
     "https://schemas.portolan-sdi.org/portolan/v0.2.0/schema.json",
     "https://schemas.portolan-sdi.org/incubating/partition/v1.0.0/schema.json",
     "https://stac-extensions.github.io/table/v1.2.0/schema.json",
-    "https://stac-extensions.github.io/web-map-links/v1.3.0/schema.json"
+    "https://stac-extensions.github.io/web-map-links/v1.3.0/schema.json",
+    "https://stac-extensions.github.io/file/v2.1.0/schema.json"
   ],
   "id": "detections",
   "title": "Active Fire Detections (MODIS and VIIRS)",
-  "description": "Global satellite active fire and thermal anomaly detections from NASA FIRMS, as one year-partitioned GeoParquet 2.0 table of 1,920,497 rows covering 2026 to 2026. Carries MODIS (Terra and Aqua, 1 km) and VIIRS (Suomi-NPP, NOAA-20, NOAA-21, 375 m). Near-real-time rows are appended hourly and replaced by science-quality rows as NASA finalizes them; the `quality` column says which is which. Rows are ordered by month and then by a Hilbert index, so a reader prunes on both time and space. Read the [agent guide](AGENTS.md) before querying: `confidence` is encoded differently per instrument and `type` is NULL for all near-real-time rows.",
+  "description": "Global satellite active fire and thermal anomaly detections from NASA FIRMS, as one year-partitioned GeoParquet 2.0 table of 1,956,503 rows covering 2026 to 2026. Carries MODIS (Terra and Aqua, 1 km) and VIIRS (Suomi-NPP, NOAA-20, NOAA-21, 375 m). Near-real-time rows are appended hourly and replaced by science-quality rows as NASA finalizes them; the `quality` column says which is which. Rows are ordered by month and then by a Hilbert index, so a reader prunes on both time and space. Read the [agent guide](AGENTS.md) before querying: `confidence` is encoded differently per instrument and `type` is NULL for all near-real-time rows.",
   "license": "CC0-1.0",
   "keywords": [
     "fire",
@@ -22,7 +23,7 @@
     "FIRMS",
     "near real-time"
   ],
-  "updated": "2026-09-08T07:59:31Z",
+  "updated": "2026-09-08T13:16:07Z",
   "providers": [
     {
       "name": "NASA LANCE FIRMS",
@@ -56,7 +57,7 @@
       "interval": [
         [
           "2026-09-01T00:01:00Z",
-          "2026-09-08T06:08:00Z"
+          "2026-09-08T11:49:00Z"
         ]
       ]
     }
@@ -71,9 +72,9 @@
     }
   ],
   "partition:file_count": 1,
-  "partition:glob": "s3://portolan-mirrors/firms-catalog/detections/year=*/detections.parquet",
+  "partition:glob": "s3://portolan-mirrors/firms-catalog/detections/year=*/*.parquet",
   "table:primary_geometry": "geometry",
-  "table:row_count": 1920497,
+  "table:row_count": 1956503,
   "table:columns": [
     {
       "name": "geometry",
@@ -179,7 +180,9 @@
       "roles": [
         "style",
         "default"
-      ]
+      ],
+      "file:size": 1601,
+      "file:checksum": "12204d401b45a1871d4b9e15c3aff8c86b5f46408b4bc670e1d37e53fdcfc14deb9c"
     },
     "style-avg-frp": {
       "href": "./styles/avg-frp.json",
@@ -187,7 +190,9 @@
       "title": "Average fire radiative power",
       "roles": [
         "style"
-      ]
+      ],
+      "file:size": 1607,
+      "file:checksum": "12205faabd02b05fdb7383de3a1cfe69f6d7ed845824aba39bf2e92ae21f91181715"
     },
     "thumbnail": {
       "href": "./detections.thumb.jpg",
@@ -195,7 +200,9 @@
       "title": "Global fire detection density, rendered from the default style",
       "roles": [
         "thumbnail"
-      ]
+      ],
+      "file:size": 64637,
+      "file:checksum": "1220d7a7dba00968a029dc360e5e41c8924c6caa8d5ae65cfe2c9e6a1b4f585aa490"
     }
   },
   "links": [
@@ -228,6 +235,12 @@
       "href": "https://firms.modaps.eosdis.nasa.gov/",
       "type": "text/html",
       "title": "NASA FIRMS (upstream source)"
+    },
+    {
+      "rel": "preview",
+      "href": "https://portolan-mirrors.github.io/firms-catalog/",
+      "type": "text/html",
+      "title": "Interactive fire map"
     },
     {
       "rel": "pmtiles",

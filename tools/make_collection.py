@@ -14,11 +14,14 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 
+import hashlib
+
 import duckdb
 
 PUBLIC = "https://data.source.coop/portolan-mirrors/firms-catalog"
 S3 = "s3://portolan-mirrors/firms-catalog"
 REPO = "https://github.com/portolan-mirrors/firms-catalog"
+APP = "https://portolan-mirrors.github.io/firms-catalog/"
 
 # name -> (type, description). Descriptions are the same text AGENTS.md carries.
 COLUMNS = [
@@ -76,6 +79,17 @@ def main() -> int:
     # carrying a non-empty pmtiles:layers array (PORTO-FMT-011, PORTO-FMT-012).
     # Styles are collection-level assets with the style role, exactly one of
     # which also carries default (PORTO-CORE-069, PORTO-CORE-070).
+    def file_meta(rel: str) -> dict:
+        """file:size and file:checksum for an asset that ships in the catalog.
+
+        checksum is a multihash: '1220' (sha2-256, 32 bytes) then the digest.
+        """
+        f = Path(a.out).parent / rel
+        if not f.is_file():
+            return {}
+        h = hashlib.sha256(f.read_bytes()).hexdigest()
+        return {"file:size": f.stat().st_size, "file:checksum": "1220" + h}
+
     assets = {}
     styles = [x for x in a.styles.split(",") if x]
     for i, spec in enumerate(styles):
@@ -86,12 +100,14 @@ def main() -> int:
             "type": "application/vnd.mapbox.style+json",
             "title": title or fn,
             "roles": roles,
+            **file_meta(f"styles/{fn}"),
         }
     assets["thumbnail"] = {
         "href": f"./{a.thumbnail}",
         "type": "image/jpeg",
         "title": "Global fire detection density, rendered from the default style",
         "roles": ["thumbnail"],
+        **file_meta(a.thumbnail),
     }
 
     col = {
@@ -102,6 +118,7 @@ def main() -> int:
             "https://schemas.portolan-sdi.org/incubating/partition/v1.0.0/schema.json",
             "https://stac-extensions.github.io/table/v1.2.0/schema.json",
             "https://stac-extensions.github.io/web-map-links/v1.3.0/schema.json",
+            "https://stac-extensions.github.io/file/v2.1.0/schema.json",
         ],
         "id": "detections",
         "title": "Active Fire Detections (MODIS and VIIRS)",
@@ -157,6 +174,11 @@ def main() -> int:
              "title": "Collection README"},
             {"rel": "via", "href": "https://firms.modaps.eosdis.nasa.gov/",
              "type": "text/html", "title": "NASA FIRMS (upstream source)"},
+            # STAC uses  for a preview of the data itself, which is
+            # what an interactive map is.  is reserved for
+            # translations by the Language extension.
+            {"rel": "preview", "href": APP, "type": "text/html",
+             "title": "Interactive fire map"},
             {"rel": "pmtiles", "href": f"./{a.pmtiles}",
              "type": "application/vnd.pmtiles",
              "title": "Fire detections, aggregate bands plus raw points",
