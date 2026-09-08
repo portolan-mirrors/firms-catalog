@@ -63,10 +63,25 @@ SAT_SQL = """CASE upper(trim(CAST(satellite AS VARCHAR)))
 _write_lock = Lock()
 
 
-def fetch(key: str, source: str, day: date, span: int, tries: int = 5) -> str:
+# The server answers an exhausted budget with HTTP 400 and this body. It is not
+# a transient network error: the quota window is 10 minutes, so backing off in
+# seconds just burns retries and leaves gaps in the archive.
+RATE_LIMITED = "exceeding allowed transaction limit"
+
+
+def fetch(key: str, source: str, day: date, span: int, tries: int = 6,
+          rate_limit_waits: int = 40) -> str:
+    """Fetch one window, waiting out the quota window rather than failing.
+
+    Rate-limit rejections get their own generous budget because they always
+    clear: the counter drains over 10 minutes. Real errors keep the short
+    exponential backoff and a small retry count.
+    """
     url = f"{API}/{key}/{source}/world/{span}/{day.isoformat()}"
     delay = 3.0
-    for attempt in range(tries):
+    attempt = 0
+    waited = 0
+    while True:
         try:
             with urllib.request.urlopen(url, timeout=600) as r:
                 body = r.read().decode("utf-8", "replace")
@@ -77,11 +92,25 @@ def fetch(key: str, source: str, day: date, span: int, tries: int = 5) -> str:
                 raise RuntimeError(f"API said: {head}")
             return body
         except Exception as exc:  # noqa: BLE001
-            if attempt == tries - 1:
+            text = ""
+            if isinstance(exc, urllib.error.HTTPError):
+                try:
+                    text = exc.read().decode("utf-8", "replace")
+                except Exception:  # noqa: BLE001
+                    text = ""
+            blob = f"{exc} {text}".lower()
+            if RATE_LIMITED in blob or "transaction limit" in blob:
+                waited += 1
+                if waited > rate_limit_waits:
+                    raise RuntimeError("still rate limited after "
+                                       f"{rate_limit_waits} waits") from exc
+                time.sleep(45)
+                continue
+            attempt += 1
+            if attempt >= tries:
                 raise
             time.sleep(delay)
             delay *= 2
-    raise RuntimeError("unreachable")
 
 
 def normalize(con, body: str, source: str, out: Path) -> int:
