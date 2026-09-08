@@ -40,6 +40,16 @@
  .kv b{color:var(--fg);font-variant-numeric:tabular-nums}
  .note{font-size:10px;color:var(--warn);line-height:1.35;margin-top:6px}
  input[type=range]{accent-color:var(--acc)}
+ .dual{position:relative;height:26px;margin-top:2px}
+ .dual .track,.dual .fill{position:absolute;top:11px;height:4px;border-radius:2px}
+ .dual .track{left:0;right:0;background:#0b0f15;border:1px solid var(--line)}
+ .dual .fill{background:var(--acc);opacity:.75}
+ .dual input[type=range]{position:absolute;top:0;left:0;width:100%;margin:0;
+   background:none;pointer-events:none;-webkit-appearance:none;height:26px}
+ .dual input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;
+   pointer-events:auto;width:14px;height:14px;border-radius:50%;
+   background:var(--fg);border:2px solid var(--acc);cursor:pointer}
+ .ends{display:flex;justify-content:space-between;font-size:10px;color:var(--dim);margin-top:1px}
  #pop{position:absolute;right:10px;top:10px;width:224px;background:var(--panel);
    border:1px solid var(--line);border-radius:11px;padding:11px 13px;z-index:3;display:none}
  #pop table{width:100%;border-collapse:collapse;font-size:10.5px}
@@ -76,8 +86,14 @@
     <div class="sub" id="frpnote">Aggregate filters on the coloured FRP metric; points filter on their own FRP.</div>
   </div>
 
-  <div class="sec"><div class="grp">Day</div>
-    <div class="chips" id="days"></div></div>
+  <div class="sec"><div class="grp"><span>Days</span><b id="dayrange" style="color:var(--fg)">all</b></div>
+    <div class="dual" id="dual">
+      <div class="track"></div><div class="fill" id="dfill"></div>
+      <input type="range" id="d0" min="0" max="0" step="1" value="0">
+      <input type="range" id="d1" min="0" max="0" step="1" value="0">
+    </div>
+    <div class="ends"><span id="dlo"></span><span id="dhi"></span></div>
+  </div>
 
   <div class="sec"><div class="grp">Sensor</div>
     <div class="chips" id="sensors"></div></div>
@@ -111,7 +127,7 @@ const RAMPS={
 const SENSORS=[["viirs_snpp","S-NPP"],["viirs_noaa20","NOAA-20"],["viirs_noaa21","NOAA-21"],["modis","MODIS"]];
 const SENSOR_VAL={viirs_snpp:"VIIRS_SNPP",viirs_noaa20:"VIIRS_NOAA20",viirs_noaa21:"VIIRS_NOAA21",modis:"MODIS"};
 
-let S={mode:"auto",metric:"count",minFrp:0,day:null,sensor:null,dn:"all",days:[],
+let S={mode:"auto",metric:"count",minFrp:0,d0:0,d1:0,sensor:null,dn:"all",days:[],
         bands:[],ptsMinZoom:null};
 
 // gpio records the zoom band of every aggregate level, and of the raw-point
@@ -144,30 +160,47 @@ const map=new maplibregl.Map({container:"map",hash:true,
   center:[20,0],zoom:2,minZoom:-2,renderWorldCopies:true});
 window._map=map;
 
-const step=(field,stops)=>{const e=["step",["coalesce",["get",field],0],stops[0][1]];
+const stepExpr=(expr,stops)=>{const e=["step",expr,stops[0][1]];
   for(let i=1;i<stops.length;i++)e.push(stops[i][0],stops[i][1]);return e;};
+const step=(field,stops)=>stepExpr(["coalesce",["get",field],0],stops);
 const fmt=n=>n>=1000?(n/1000).toFixed(n>=10000?0:1)+"k":n;
 
 // Which aggregate column currently represents "count", given the active facet.
 // One pivot dimension at a time: the aggregate holds no cross-tabs.
-function activeCountField(){
-  if(S.day)    return "count_"+S.day;
-  if(S.sensor) return "count_"+S.sensor;
+const allDays=()=>S.days.length===0||(S.d0===0&&S.d1===S.days.length-1);
+const selDays=()=>S.days.slice(S.d0,S.d1+1);
+
+// A day RANGE has no single column: the cells hold one count per day, so the
+// range is their sum. Summing in the style expression keeps it exact, because
+// each day's count is a true count rather than a sample.
+function activeCountExpr(){
+  if(!allDays()){
+    const cols=selDays().map(d=>["coalesce",["get","count_"+d],0]);
+    return cols.length===1?cols[0]:["+"].concat(cols);
+  }
+  if(S.sensor) return ["coalesce",["get","count_"+S.sensor],0];
+  if(S.dn!=="all") return ["coalesce",["get",S.dn==="D"?"count_d":"count_n"],0];
+  return ["coalesce",["get","count"],0];
+}
+function activeCountLabel(){
+  if(!allDays())   return `${selDays().length} day(s)`;
+  if(S.sensor)     return "count_"+S.sensor;
   if(S.dn!=="all") return S.dn==="D"?"count_d":"count_n";
   return "count";
 }
-function facetCount(){return [S.day,S.sensor,S.dn!=="all"?S.dn:null].filter(Boolean).length;}
-
-function aggColorField(){
-  return S.metric==="count" ? activeCountField() : S.metric;
+function facetCount(){
+  return [!allDays()||null,S.sensor,S.dn!=="all"?S.dn:null].filter(Boolean).length;
 }
 
 function apply(){
   if(!map.getLayer(AGG_LAYER))return;
-  const cf=activeCountField(), mf=aggColorField(), ramp=RAMPS[S.metric];
+  const cexpr=activeCountExpr(), ramp=RAMPS[S.metric];
+  const colorExpr = S.metric==="count"
+    ? stepExpr(cexpr,ramp.stops)
+    : step(S.metric,ramp.stops);
 
-  map.setPaintProperty(AGG_LAYER,"fill-color",step(mf,ramp.stops));
-  const aggFilter=["all",[">",["coalesce",["get",cf],0],0]];
+  map.setPaintProperty(AGG_LAYER,"fill-color",colorExpr);
+  const aggFilter=["all",[">",cexpr,0]];
   if(S.minFrp>0){
     const f=S.metric==="count"?"max_frp":S.metric;
     aggFilter.push([">=",["coalesce",["get",f],0],S.minFrp]);
@@ -178,7 +211,10 @@ function apply(){
     map.setPaintProperty(PT_LAYER,"circle-color",step("frp",RAMPS.frp.stops));
     const pf=["all"];
     if(S.minFrp>0)pf.push([">=",["coalesce",["get","frp"],0],S.minFrp]);
-    if(S.day)pf.push(["==",["get","day"],S.day]);
+    if(!allDays()){
+      pf.push([">=",["get","day"],selDays()[0]]);
+      pf.push(["<=",["get","day"],selDays()[selDays().length-1]]);
+    }
     if(S.sensor)pf.push(["==",["get","sensor"],SENSOR_VAL[S.sensor]]);
     if(S.dn!=="all")pf.push(["==",["get","daynight"],S.dn]);
     map.setFilter(PT_LAYER,pf.length>1?pf:null);
@@ -242,26 +278,38 @@ map.on("load",async ()=>{
 // version toggled classes on click and separately re-rendered on discovery,
 // which let the visible selection and S drift apart.
 function renderControls(){
+  const n=S.days.length;
+  const d0=document.getElementById("d0"), d1=document.getElementById("d1");
+  if(n){
+    d0.max=d1.max=String(n-1);
+    d0.value=String(S.d0); d1.value=String(S.d1);
+    const pct=i=>n>1?(i/(n-1))*100:0;
+    const f=document.getElementById("dfill");
+    f.style.left=pct(S.d0)+"%"; f.style.right=(100-pct(S.d1))+"%";
+    const fmt=d=>`${d.slice(4,6)}/${d.slice(6,8)}`;
+    document.getElementById("dayrange").textContent=
+      allDays()?"all":(S.d0===S.d1?fmt(S.days[S.d0]):`${fmt(S.days[S.d0])} – ${fmt(S.days[S.d1])}`);
+    document.getElementById("dlo").textContent=fmt(S.days[0]);
+    document.getElementById("dhi").textContent=fmt(S.days[n-1]);
+  }
   document.querySelectorAll("#mode button").forEach(b=>
     b.classList.toggle("on", b.dataset.m===S.mode));
   document.querySelectorAll("#dn button").forEach(b=>
     b.classList.toggle("on", b.dataset.v===S.dn));
   document.getElementById("metric").value=S.metric;
-  const dc=document.getElementById("days");
-  dc.innerHTML=[`<span class="chip${S.day?"":" on"}" data-d="">All</span>`]
-    .concat(S.days.map(d=>
-      `<span class="chip${S.day===d?" on":""}" data-d="${d}">${d.slice(4,6)}/${d.slice(6,8)}</span>`))
-    .join("");
   const sc=document.getElementById("sensors");
   sc.innerHTML=[`<span class="chip${S.sensor?"":" on"}" data-s="">All</span>`]
     .concat(SENSORS.map(([k,l])=>
       `<span class="chip${S.sensor===k?" on":""}" data-s="${k}">${l}</span>`))
     .join("");
 }
-document.getElementById("days").onclick=e=>{
-  const d=e.target.dataset.d; if(d===undefined)return;
-  S.day=d||null; apply();
-};
+for(const id of ["d0","d1"]){
+  document.getElementById(id).oninput=e=>{
+    let a=+document.getElementById("d0").value, b=+document.getElementById("d1").value;
+    if(id==="d0"&&a>b)b=a; if(id==="d1"&&b<a)a=b;      // thumbs may not cross
+    S.d0=a; S.d1=b; apply();
+  };
+}
 document.getElementById("sensors").onclick=e=>{
   const v=e.target.dataset.s; if(v===undefined)return;
   S.sensor=v||null; apply();
@@ -288,7 +336,7 @@ map.on("idle",()=>{
     if(f.length){
       S.days=Object.keys(f[0].properties).filter(k=>/^count_\d{8}$/.test(k))
         .map(k=>k.slice(6)).sort();
-      if(S.days.length)renderControls();
+      if(S.days.length){ S.d0=0; S.d1=S.days.length-1; renderControls(); apply(); }
     }
   }
 });
