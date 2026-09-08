@@ -1,0 +1,96 @@
+name: publish-backfill
+
+# Turn the artifacts that backfill.yml produced into published year files.
+#
+# Split from the fetch on purpose. The fetch runs for about a day and needs no
+# cloud credentials; this runs for minutes and needs them, so a Source
+# Cooperative session token stays valid for the whole of it.
+#
+# One job per year, because the slices are keyed by (source, year): building
+# year=Y needs at most four artifacts, never the whole 9 GB. The aggregate job
+# then reads the PUBLISHED data back out of the bucket rather than holding the
+# archive on a 14 GB runner.
+
+on:
+  workflow_dispatch:
+    inputs:
+      years:
+        description: 'JSON list of years, e.g. [2000,2001]. Blank = every year with artifacts.'
+        required: false
+        default: ""
+      run_id:
+        description: "backfill run id to pull artifacts from (blank = latest)"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      years: ${{ steps.p.outputs.years }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: p
+        env:
+          GH_TOKEN: ${{ github.token }}
+          YEARS_IN: ${{ inputs.years }}
+          RUN_ID: ${{ inputs.run_id }}
+        run: |
+          set -euo pipefail
+          if [ -n "$YEARS_IN" ]; then echo "years=$YEARS_IN" >> "$GITHUB_OUTPUT"; exit 0; fi
+          RID="$RUN_ID"
+          if [ -z "$RID" ]; then
+            RID=$(gh run list --workflow=backfill.yml -R "$GITHUB_REPOSITORY" \
+                   --limit 1 --json databaseId --jq '.[0].databaseId')
+          fi
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RID/artifacts?per_page=100" \
+            --jq '[.artifacts[].name]' > names.json
+          python3 - <<'EOF' >> "$GITHUB_OUTPUT"
+          import json,re
+          names=json.load(open("names.json"))
+          ys=sorted({int(m.group(1)) for n in names if (m:=re.search(r"-(\d{4})$", n))})
+          print("years=" + json.dumps(ys))
+          EOF
+
+  year:
+    needs: plan
+    if: needs.plan.outputs.years != '[]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    strategy:
+      max-parallel: 2
+      fail-fast: false
+      matrix:
+        year: ${{ fromJson(needs.plan.outputs.years) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - run: |
+          pip install --quiet duckdb boto3 \
+            'git+https://github.com/geoparquet/geoparquet-io.git@main'
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: slice-*-${{ matrix.year }}
+          path: ./dl
+          merge-multiple: true
+          run-id: ${{ inputs.run_id }}
+          github-token: ${{ github.token }}
+      - name: Unpack slices
+        run: |
+          mkdir -p chunks
+          find ./dl -name '*.tar.gz' -print -exec tar -xzf {} -C chunks \;
+          find chunks -name '*.parquet' | wc -l
+      - name: Build year=${{ matrix.year }}
+        run: |
+          python3 tools/firms_build.py --chunks ./chunks \
+            --out ./staging/publish/detections --years ${{ matrix.year }} --memory 6GB
+      - name: Upload
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.SOURCE_COOP_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SOURCE_COOP_SECRET_ACCESS_KEY }}
+        run: python3 tools/upload_data.py --confirm
