@@ -7,13 +7,17 @@
 # source.coop renders the human-facing page.
 
 # The S3 URI uploads are written to. Copy it from your storage provider.
-write_prefix: s3://us-west-2.opendata.source.coop/portolan-mirrors/firms-catalog
+write_prefix: s3://portolan-mirrors/firms-catalog
 
 # The public base URL that serves write_prefix. Every href in the catalog is
 # built from this, so it goes in the STAC JSON and write_prefix does not.
 public_base: https://data.source.coop/portolan-mirrors/firms-catalog
 
 region: us-west-2
+
+# Source Cooperative serves S3 at its own host, not AWS S3. Without this the
+# publisher silently targets AWS and fails with NoSuchBucket.
+endpoint_url: https://data.source.coop
 
 # The named AWS profile the publisher uses. Optional. Leave it commented out
 # to use the default boto3 session. Source Cooperative issues per-account

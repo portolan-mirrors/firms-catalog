@@ -1,0 +1,215 @@
+{
+  "type": "Collection",
+  "stac_version": "1.1.0",
+  "stac_extensions": [
+    "https://schemas.portolan-sdi.org/portolan/v0.2.0/schema.json",
+    "https://schemas.portolan-sdi.org/incubating/partition/v1.0.0/schema.json",
+    "https://stac-extensions.github.io/table/v1.2.0/schema.json"
+  ],
+  "id": "detections",
+  "title": "Active Fire Detections (MODIS and VIIRS)",
+  "description": "Global satellite active fire and thermal anomaly detections from NASA FIRMS, as one year-partitioned GeoParquet 2.0 table of 1,915,961 rows covering 2026 to 2026. Carries MODIS (Terra and Aqua, 1 km) and VIIRS (Suomi-NPP, NOAA-20, NOAA-21, 375 m). Near-real-time rows are appended hourly and replaced by science-quality rows as NASA finalizes them; the `quality` column says which is which. Rows are ordered by month and then by a Hilbert index, so a reader prunes on both time and space. Read the [agent guide](AGENTS.md) before querying: `confidence` is encoded differently per instrument and `type` is NULL for all near-real-time rows.",
+  "license": "CC0-1.0",
+  "keywords": [
+    "fire",
+    "wildfire",
+    "active fire",
+    "thermal anomaly",
+    "MODIS",
+    "VIIRS",
+    "NASA",
+    "FIRMS",
+    "near real-time"
+  ],
+  "updated": "2026-09-08T06:48:37Z",
+  "providers": [
+    {
+      "name": "NASA LANCE FIRMS",
+      "description": "Fire Information for Resource Management System, part of NASA's Earth Observing System Data and Information System (EOSDIS).",
+      "roles": [
+        "producer",
+        "licensor"
+      ],
+      "url": "https://firms.modaps.eosdis.nasa.gov/"
+    },
+    {
+      "name": "Portolan Mirrors",
+      "roles": [
+        "host"
+      ],
+      "url": "https://github.com/portolan-mirrors/firms-catalog"
+    }
+  ],
+  "extent": {
+    "spatial": {
+      "bbox": [
+        [
+          -175.6528,
+          -77.5293,
+          179.547,
+          75.0942
+        ]
+      ]
+    },
+    "temporal": {
+      "interval": [
+        [
+          "2026-09-01T00:01:00Z",
+          "2026-09-08T05:46:00Z"
+        ]
+      ]
+    }
+  },
+  "partition:scheme": "hive",
+  "partition:strategy": "temporal",
+  "partition:keys": [
+    {
+      "name": "year",
+      "type": "int32",
+      "description": "Year of acquisition (UTC)."
+    }
+  ],
+  "partition:file_count": 1,
+  "partition:glob": "s3://portolan-mirrors/firms-catalog/detections/year=*/detections.parquet",
+  "table:primary_geometry": "geometry",
+  "table:row_count": 1915961,
+  "table:columns": [
+    {
+      "name": "geometry",
+      "type": "geometry",
+      "description": "Detection centre point (CRS84). This is the centre of the flagged pixel, not the actual fire location."
+    },
+    {
+      "name": "acq_datetime",
+      "type": "timestamp",
+      "description": "Acquisition time in UTC, composed from the published acq_date and acq_time."
+    },
+    {
+      "name": "acq_date",
+      "type": "date",
+      "description": "Acquisition date as published."
+    },
+    {
+      "name": "sensor",
+      "type": "string",
+      "description": "MODIS, VIIRS_SNPP, VIIRS_NOAA20 or VIIRS_NOAA21."
+    },
+    {
+      "name": "satellite",
+      "type": "string",
+      "description": "Platform name: Terra, Aqua, Suomi-NPP, NOAA-20 or NOAA-21. Expanded from the published short codes."
+    },
+    {
+      "name": "instrument",
+      "type": "string",
+      "description": "MODIS or VIIRS."
+    },
+    {
+      "name": "quality",
+      "type": "string",
+      "description": "sp for science-quality, nrt for near-real-time. NRT locations are less accurate and carry no type."
+    },
+    {
+      "name": "version",
+      "type": "string",
+      "description": "Collection and processing designation as published, for example 2.0NRT or 6.1."
+    },
+    {
+      "name": "brightness",
+      "type": "double",
+      "description": "MODIS channel 21/22 brightness temperature in Kelvin. NULL for VIIRS rows."
+    },
+    {
+      "name": "bright_t31",
+      "type": "double",
+      "description": "MODIS channel 31 brightness temperature in Kelvin. NULL for VIIRS rows."
+    },
+    {
+      "name": "bright_ti4",
+      "type": "double",
+      "description": "VIIRS I-4 channel brightness temperature in Kelvin. NULL for MODIS rows."
+    },
+    {
+      "name": "bright_ti5",
+      "type": "double",
+      "description": "VIIRS I-5 channel brightness temperature in Kelvin. NULL for MODIS rows."
+    },
+    {
+      "name": "scan",
+      "type": "double",
+      "description": "Along-scan pixel size at the detection, in km for MODIS and m for VIIRS."
+    },
+    {
+      "name": "track",
+      "type": "double",
+      "description": "Along-track pixel size at the detection, in km for MODIS and m for VIIRS."
+    },
+    {
+      "name": "frp",
+      "type": "double",
+      "description": "Fire radiative power in megawatts."
+    },
+    {
+      "name": "daynight",
+      "type": "string",
+      "description": "D for a daytime detection, N for night."
+    },
+    {
+      "name": "confidence",
+      "type": "string",
+      "description": "As published, and NOT comparable across instruments: MODIS gives an integer 0-100, VIIRS gives l, n or h. No crosswalk is published here because none is documented upstream."
+    },
+    {
+      "name": "confidence_pct",
+      "type": "int32",
+      "description": "Numeric confidence 0-100. MODIS rows only; NULL for VIIRS."
+    },
+    {
+      "name": "type",
+      "type": "int32",
+      "description": "0 vegetation fire, 1 active volcano, 2 other static land source, 3 offshore. NULL for every NRT row, because FIRMS does not attribute type in near-real-time."
+    },
+    {
+      "name": "_month",
+      "type": "uint8",
+      "description": "Month 1-12. Primary sort key, and a cheap month filter."
+    },
+    {
+      "name": "_hilbert",
+      "type": "uint32",
+      "description": "Hilbert index over the global extent. Secondary sort key that keeps each row group spatially tight."
+    }
+  ],
+  "links": [
+    {
+      "rel": "root",
+      "href": "../catalog.json",
+      "type": "application/json",
+      "title": "NASA FIRMS Active Fire Detections"
+    },
+    {
+      "rel": "parent",
+      "href": "../catalog.json",
+      "type": "application/json",
+      "title": "NASA FIRMS Active Fire Detections"
+    },
+    {
+      "rel": "agents",
+      "href": "./AGENTS.md",
+      "type": "text/markdown",
+      "title": "Collection agent guide"
+    },
+    {
+      "rel": "describedby",
+      "href": "./README.md",
+      "type": "text/markdown",
+      "title": "Collection README"
+    },
+    {
+      "rel": "via",
+      "href": "https://firms.modaps.eosdis.nasa.gov/",
+      "type": "text/html",
+      "title": "NASA FIRMS (upstream source)"
+    }
+  ]
+}

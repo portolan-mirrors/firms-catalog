@@ -14,6 +14,7 @@ No network, no AWS, no credentials.
 Run: python3 tests/test_upload_data.py
 """
 import io
+import pathlib
 import sys
 import tempfile
 from contextlib import redirect_stderr, redirect_stdout
@@ -150,16 +151,23 @@ with tempfile.TemporaryDirectory() as tmp:
         "a data_dir that does not exist says so",
     )
 
-# --- the unedited template exits cleanly -------------------------------
-# The shipped catalog.publish.yaml sets no data_dir, so main() must report
-# that instead of raising a traceback.
-argv = sys.argv
-sys.argv = ["upload_data.py"]
-try:
-    message = exit_message(upload_data.main)
-finally:
-    sys.argv = argv
-check("data_dir" in message, f"the template exits on data_dir: {message!r}")
+# --- this catalog's own data_dir resolves or says why ------------------
+# This catalog sets data_dir to a staging tree outside the repository, so it
+# is present when data has been built and absent in a fresh CI clone. Both
+# are correct; neither may raise a traceback.
+real = upload_data.load_config()
+configured = real.get("data_dir", "")
+check(bool(configured), "this catalog sets a data_dir")
+staging = pathlib.Path(configured)
+if not staging.is_absolute():
+    staging = upload_data.ROOT / staging
+if staging.is_dir():
+    check(upload_data.data_root(real).is_dir(),
+          "a present data_dir resolves to a directory")
+else:
+    message = exit_message(lambda: upload_data.data_root(real))
+    check("data_dir" in message,
+          f"an absent staging tree names data_dir: {message!r}")
 
 # --- the sentinel guard ------------------------------------------------
 check(

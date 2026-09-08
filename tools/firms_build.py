@@ -45,7 +45,11 @@ def candidates(chunks: Path, year: int) -> list[str]:
         for f in src.glob("*.parquet"):
             if f.stat().st_size == 0:
                 continue  # sentinel: window fetched, no detections
-            if f.name.startswith((f"{year}-", f"{year - 1}-12-")):
+            # Date-named chunks (from the area API) can be narrowed by name.
+            # Bulk NRT chunks carry no date in the name, so they are always
+            # candidates and the SQL year filter decides.
+            dated = len(f.name) > 4 and f.name[:4].isdigit()
+            if not dated or f.name.startswith((f"{year}-", f"{year - 1}-12-")):
                 out.append(str(f))
     return out
 

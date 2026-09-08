@@ -47,6 +47,31 @@
       "href": "https://firms.modaps.eosdis.nasa.gov/",
       "type": "text/html",
       "title": "NASA FIRMS"
+    },
+    {
+      "rel": "child",
+      "href": "./detections/collection.json",
+      "type": "application/json",
+      "title": "Active Fire Detections (MODIS and VIIRS)"
+    }
+  ],
+  "updated": "2026-09-08T06:49:50Z",
+  "providers": [
+    {
+      "name": "NASA LANCE FIRMS",
+      "description": "Fire Information for Resource Management System, part of NASA's Earth Observing System Data and Information System (EOSDIS).",
+      "roles": [
+        "producer",
+        "licensor"
+      ],
+      "url": "https://firms.modaps.eosdis.nasa.gov/"
+    },
+    {
+      "name": "Portolan Mirrors",
+      "roles": [
+        "host"
+      ],
+      "url": "https://github.com/portolan-mirrors/firms-catalog"
     }
   ]
 }

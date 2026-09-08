@@ -105,7 +105,9 @@ def load_config(path: Path = CONFIG) -> dict[str, str]:
     nesting to it.
 
     ``write_prefix``, ``public_base`` and ``publish_dir`` are required.
-    ``region`` and ``profile`` are optional scalars and may be absent or empty.
+    ``region``, ``profile`` and ``endpoint_url`` are optional scalars and may
+    be absent or empty. ``endpoint_url`` targets an S3-compatible host such
+    as Source Cooperative, which does not serve from AWS S3.
     """
     config: dict[str, str] = {}
     for line in path.read_text().splitlines():
@@ -220,12 +222,24 @@ def aws_session(config: dict[str, str]):
     )
 
 
+def s3_client(session, config: dict[str, str]):
+    """An S3 client honoring ``endpoint_url`` when the config sets one.
+
+    Source Cooperative serves S3 at its own host, so a client built without
+    the endpoint silently talks to AWS instead.
+    """
+    endpoint = config.get("endpoint_url") or None
+    if endpoint:
+        return session.client("s3", endpoint_url=endpoint)
+    return session.client("s3")
+
+
 def remote_index(
     bucket: str, prefix: str, config: dict[str, str]
 ) -> dict[str, tuple[int, str]]:
     """Size and ETag for every object under the prefix, or {} when unreadable."""
     try:
-        client = aws_session(config).client("s3")
+        client = s3_client(aws_session(config), config)
         index = {}
         paginator = client.get_paginator("list_objects_v2")
         for page in paginator.paginate(Bucket=bucket, Prefix=prefix):
@@ -241,7 +255,7 @@ def remote_index(
         return {}
 
 
-def upload_all(session, bucket: str, uploads: list[Upload]) -> list[str]:
+def upload_all(session, bucket: str, uploads: list[Upload], config: dict[str, str] | None = None) -> list[str]:
     """Upload every object on a bounded pool. Returns the keys that failed.
 
     Every upload is attempted. One failure does not cancel the rest, so the
@@ -259,7 +273,7 @@ def upload_all(session, bucket: str, uploads: list[Upload]) -> list[str]:
         if existing is not None:
             return existing
         with new_client:
-            thread_state.client = session.client("s3")
+            thread_state.client = s3_client(session, config or {})
         return thread_state.client
 
     def put(upload: Upload) -> None:
@@ -351,7 +365,7 @@ def main() -> int:
     except Exception as exc:  # noqa: BLE001 - stop before any upload
         sys.exit(f"cannot build an AWS session: {exc}")
 
-    failed = upload_all(session, bucket, changed)
+    failed = upload_all(session, bucket, changed, config)
     if failed:
         print(f"\n{len(failed)} of {len(changed)} file(s) failed:",
               file=sys.stderr)

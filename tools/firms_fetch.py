@@ -89,6 +89,8 @@ def normalize(con, body: str, source: str, out: Path) -> int:
             if name in header else f"CAST(NULL AS {cast})"
 
     has_type = "type" in header
+    inst = ("trim(CAST(instrument AS VARCHAR))" if "instrument" in header
+            else ("'MODIS'" if sensor == "MODIS" else "'VIIRS'"))
     with tempfile.NamedTemporaryFile("w", suffix=".csv", delete=False) as tf:
         tf.write(body)
         tmp = tf.name
@@ -103,7 +105,7 @@ def normalize(con, body: str, source: str, out: Path) -> int:
             CAST(acq_date AS DATE) AS acq_date,
             '{sensor}' AS sensor,
             {SAT_SQL} AS satellite,
-            trim(CAST(instrument AS VARCHAR)) AS instrument,
+            {inst} AS instrument,
             '{quality}' AS quality,
             trim(CAST(version AS VARCHAR)) AS version,
             {col('brightness')} AS brightness,
