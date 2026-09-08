@@ -58,6 +58,7 @@
       <button data-m="agg">Aggregate</button>
       <button data-m="pts">Points</button></div>
     <div class="kv" style="margin-top:7px"><span>showing</span><b id="showing">aggregate</b></div>
+    <div class="note" id="zwarn" style="display:none"></div>
   </div>
 
   <div class="sec"><div class="grp">Colour by</div>
@@ -110,7 +111,29 @@ const RAMPS={
 const SENSORS=[["viirs_snpp","S-NPP"],["viirs_noaa20","NOAA-20"],["viirs_noaa21","NOAA-21"],["modis","MODIS"]];
 const SENSOR_VAL={viirs_snpp:"VIIRS_SNPP",viirs_noaa20:"VIIRS_NOAA20",viirs_noaa21:"VIIRS_NOAA21",modis:"MODIS"};
 
-let S={mode:"auto",metric:"count",minFrp:0,day:null,sensor:null,dn:"all",days:[]};
+let S={mode:"auto",metric:"count",minFrp:0,day:null,sensor:null,dn:"all",days:[],
+        bands:[],ptsMinZoom:null};
+
+// gpio records the zoom band of every aggregate level, and of the raw-point
+// band, in the archive metadata. Read it rather than assume a threshold: the
+// points band does not exist below its minzoom, so a viewer that guesses shows
+// an empty map and looks broken.
+async function loadBands(url){
+  try{
+    const pm=new pmtiles.PMTiles(url);
+    const md=await pm.getMetadata();
+    let py=md["gpio:pyramid"];
+    if(typeof py==="string")py=JSON.parse(py);
+    if(py&&py.bands){
+      S.bands=py.bands;
+      const f=py.bands.find(b=>b.layer===PT_LAYER);
+      S.ptsMinZoom=f?f.minzoom:null;
+    }
+  }catch(e){console.warn("no pyramid metadata",e);}
+}
+function bandAt(z){
+  return S.bands.find(b=>z>=b.minzoom&&(b.maxzoom==null||z<=b.maxzoom));
+}
 
 const map=new maplibregl.Map({container:"map",hash:true,
   style:{version:8,sources:{base:{type:"raster",
@@ -181,16 +204,29 @@ function apply(){
 
 function updateMode(){
   const z=map.getZoom();
+  const cut=S.ptsMinZoom==null?10:S.ptsMinZoom;
+  const ptsHere=z>=cut;
   let showAgg,showPts;
-  if(S.mode==="auto"){showAgg=z<10;showPts=z>=10;}
+  if(S.mode==="auto"){showAgg=!ptsHere;showPts=ptsHere;}
   else if(S.mode==="agg"){showAgg=true;showPts=false;}
-  else {showAgg=false;showPts=true;}
+  else {showAgg=false;showPts=ptsHere;}
   if(map.getLayer(AGG_LAYER))map.setLayoutProperty(AGG_LAYER,"visibility",showAgg?"visible":"none");
   if(map.getLayer(PT_LAYER))map.setLayoutProperty(PT_LAYER,"visibility",showPts?"visible":"none");
-  document.getElementById("showing").textContent=showAgg?"aggregate":"points";
+  const b=bandAt(z);
+  const lbl=showAgg?(b&&b.level!=="features"?`aggregate r${b.level}`:"aggregate")
+                   :(showPts?"points":"—");
+  document.getElementById("showing").textContent=lbl;
+  const w=document.getElementById("zwarn");
+  if(S.mode==="pts"&&!ptsHere){
+    w.style.display="block";
+    w.textContent=`Raw points start at zoom ${cut}. This archive carries no point `+
+      `band below that, so nothing draws here. Zoom in, or rebuild with a lower `+
+      `--features-min-zoom.`;
+  } else w.style.display="none";
 }
 
-map.on("load",()=>{
+map.on("load",async ()=>{
+  await loadBands("./fire.pmtiles");
   map.addSource("fire",{type:"vector",url:"pmtiles://./fire.pmtiles"});
   map.addLayer({id:AGG_LAYER,type:"fill",source:"fire","source-layer":AGG_LAYER,
     paint:{"fill-color":step("count",RAMPS.count.stops),"fill-opacity":.74,
