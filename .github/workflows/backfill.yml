@@ -25,6 +25,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 jobs:
   plan:
@@ -60,7 +61,27 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install --quiet duckdb
+      - name: Skip if this slice was already fetched
+        id: resume
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          NAME="slice-${{ matrix.source }}-${{ matrix.year }}"
+          # A 26 hour backfill will be interrupted at some point. Artifacts are
+          # the record of what is done, so look for this slice in any recent
+          # backfill run before spending the transaction budget again.
+          FOUND=$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts?per_page=100&name=$NAME" \
+                    --jq '[.artifacts[] | select(.expired==false)] | length' 2>/dev/null || echo 0)
+          if [ "${FOUND:-0}" -gt 0 ]; then
+            echo "done=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::$NAME already exists; skipping"
+          else
+            echo "done=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Fetch ${{ matrix.source }} ${{ matrix.year }}
+        if: steps.resume.outputs.done != 'true' 
         env:
           FIRMS_MAP_KEY: ${{ secrets.FIRMS_MAP_KEY }}
         run: |
@@ -79,6 +100,7 @@ jobs:
           python3 tools/firms_fetch.py --source "$SRC" --start "$START" --end "$END" \
             --out ./chunks --workers 4
       - name: Pack the slice
+        if: steps.resume.outputs.done != 'true'
         run: |
           if [ -d ./chunks ] && [ -n "$(find ./chunks -name '*.parquet' -size +0c 2>/dev/null)" ]; then
             mkdir -p out && tar -czf "out/${{ matrix.source }}_${{ matrix.year }}.tar.gz" -C ./chunks .
@@ -87,6 +109,7 @@ jobs:
             echo "no data for this slice"; mkdir -p out
           fi
       - uses: actions/upload-artifact@v4
+        if: steps.resume.outputs.done != 'true'
         with:
           name: slice-${{ matrix.source }}-${{ matrix.year }}
           path: out/
