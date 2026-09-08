@@ -5,11 +5,10 @@ Layout, one file per year:
 
     detections/year=<YYYY>/detections.parquet
 
-Rows are ordered by (month, Hilbert). The `year=` path key already prunes to a
-year, so ordering inside the file buys two more things: row-group statistics on
-acq_datetime prune to a month, and the Hilbert run inside each month keeps the
-bbox statistics tight for a spatial filter. A pure Hilbert sort would scatter
-every month across the whole file and remove month pruning.
+Rows are Hilbert-ordered, so row-group bounds stay spatially tight and an
+ordinary bounding-box filter prunes without reading the data. The `year=` path
+key handles time pruning, so no sort-key column is published: `gpio sort
+hilbert` orders the rows and computes the curve internally.
 
 A chunk can straddle a year boundary, so candidate chunks for year Y include
 the tail of Y-1. The year filter is applied on acq_date, never on the filename.
@@ -64,35 +63,36 @@ def build_year(con, chunks: Path, year: int, outdir: Path, verbose: bool) -> int
     final = dest / "detections.parquet"
 
     with tempfile.TemporaryDirectory() as td:
-        staged = Path(td) / "ordered.parquet"
+        staged = Path(td) / "rows.parquet"
         con.execute(f"""
             COPY (
               SELECT * EXCLUDE (geometry), geometry
               FROM read_parquet([{lst}], union_by_name=true)
               WHERE year(acq_date) = {year}
-              ORDER BY month(acq_date), ST_Hilbert(geometry)
             ) TO '{staged}'
-              (FORMAT PARQUET, COMPRESSION zstd, COMPRESSION_LEVEL {ZSTD_LEVEL},
-               ROW_GROUP_SIZE {ROW_GROUP})
+              (FORMAT PARQUET, COMPRESSION zstd, ROW_GROUP_SIZE {ROW_GROUP})
         """)
         n = con.execute(f"SELECT count(*) FROM read_parquet('{staged}')").fetchone()[0]
         if n == 0:
             shutil.rmtree(dest, ignore_errors=True)
             return 0
-        # Upgrade to GeoParquet 2.0 (native Parquet GEOMETRY logical type).
-        cmd = ["gpio", "convert", "geoparquet", str(staged), str(final),
-               "--geoparquet-version", "2.0",
-               "--compression", "zstd", "--compression-level", str(ZSTD_LEVEL),
-               "--row-group-size", str(ROW_GROUP), "--overwrite"]
-        r = subprocess.run(cmd, capture_output=True, text=True)
+        # gpio sort hilbert orders the rows physically and writes GeoParquet
+        # 2.0. It needs no sort-key column, so nothing extra ships in the
+        # public schema.
+        #
+        # Do NOT sort in DuckDB and then run `gpio convert`: convert does not
+        # preserve row order, so the ordering is silently lost and every row
+        # group ends up spanning the whole year.
+        final.unlink(missing_ok=True)
+        r = subprocess.run(
+            ["gpio", "sort", "hilbert", str(staged), str(final),
+             "--geoparquet-version", "2.0", "--compression", "zstd",
+             "--compression-level", str(ZSTD_LEVEL),
+             "--row-group-size", str(ROW_GROUP)],
+            capture_output=True, text=True)
         if r.returncode != 0:
-            # Older gpio builds lack --overwrite on convert.
-            final.unlink(missing_ok=True)
-            r = subprocess.run([c for c in cmd if c != "--overwrite"],
-                               capture_output=True, text=True)
-            if r.returncode != 0:
-                print(r.stdout[-1500:], r.stderr[-1500:], file=sys.stderr)
-                raise SystemExit(f"gpio convert failed for {year}")
+            print(r.stdout[-1500:], r.stderr[-1500:], file=sys.stderr)
+            raise SystemExit(f"gpio sort failed for {year}")
     mb = final.stat().st_size / 1e6
     print(f"  year={year}: {n:,} rows, {mb:,.0f} MB", flush=True)
     return n

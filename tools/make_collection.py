@@ -41,8 +41,6 @@ COLUMNS = [
     ("confidence", "string", "As published, and NOT comparable across instruments: MODIS gives an integer 0-100, VIIRS gives l, n or h. No crosswalk is published here because none is documented upstream."),
     ("confidence_pct", "int32", "Numeric confidence 0-100. MODIS rows only; NULL for VIIRS."),
     ("type", "int32", "0 vegetation fire, 1 active volcano, 2 other static land source, 3 offshore. NULL for every NRT row, because FIRMS does not attribute type in near-real-time."),
-    ("_month", "uint8", "Month 1-12. Primary sort key, and a cheap month filter."),
-    ("_hilbert", "uint32", "Hilbert index over the global extent. Secondary sort key that keeps each row group spatially tight."),
 ]
 
 
