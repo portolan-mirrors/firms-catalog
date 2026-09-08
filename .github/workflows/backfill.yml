@@ -35,17 +35,41 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - id: build
-        run: |
-          python3 - <<'EOF' >> "$GITHUB_OUTPUT"
-          import json, os
-          s = json.load(open("tools/backfill_slices.json"))
-          only = os.environ.get("ONLY", "").strip()
-          if only:
-              s = [x for x in s if x["source"] == only]
-          print("matrix=" + json.dumps({"include": s}))
-          EOF
         env:
           ONLY: ${{ inputs.only_source }}
+          FIRMS_MAP_KEY: ${{ secrets.FIRMS_MAP_KEY }}
+        run: |
+          set -euo pipefail
+          # Resolve availability ONCE, here. The endpoint is slow and
+          # intermittently unreachable; calling it once per slice made all 54
+          # depend on it, and it outlasted six retries on MODIS_SP 2012.
+          curl -sf --retry 8 --retry-delay 15 --retry-all-errors \
+            --connect-timeout 20 --max-time 120 \
+            "https://firms.modaps.eosdis.nasa.gov/api/data_availability/csv/${FIRMS_MAP_KEY}/ALL" \
+            > availability.csv || { echo "::error::data_availability unreachable"; exit 1; }
+          cat availability.csv
+          python3 - <<'EOF' >> "$GITHUB_OUTPUT"
+          import csv, json, os
+          avail = {}
+          with open("availability.csv") as f:
+              for r in csv.DictReader(f):
+                  avail[r["data_id"]] = (r["min_date"], r["max_date"])
+          only = os.environ.get("ONLY", "").strip()
+          out = []
+          for sl in json.load(open("tools/backfill_slices.json")):
+              if only and sl["source"] != only:
+                  continue
+              rng = avail.get(sl["source"])
+              if not rng:
+                  continue
+              lo, hi = rng
+              y = sl["year"]
+              start, end = max(f"{y}-01-01", lo), min(f"{y}-12-31", hi)
+              if start > end:        # slice lies outside what FIRMS serves
+                  continue
+              out.append({**sl, "start": start, "end": end})
+          print("matrix=" + json.dumps({"include": out}))
+          EOF
 
   fetch:
     needs: plan
@@ -83,29 +107,15 @@ jobs:
       - if: steps.resume.outputs.done != 'true'
         run: pip install --quiet duckdb
       - name: Fetch ${{ matrix.source }} ${{ matrix.year }}
-        if: steps.resume.outputs.done != 'true' 
+        if: steps.resume.outputs.done != 'true'
         env:
           FIRMS_MAP_KEY: ${{ secrets.FIRMS_MAP_KEY }}
         run: |
           set -euo pipefail
-          SRC='${{ matrix.source }}'; Y='${{ matrix.year }}'
-          # Clamp the slice to the range FIRMS actually serves for this source.
-          # A transient blip here must not cost a slice. Bare curl exits 28 on
-          # timeout and `set -e` then kills the job before a single window is
-          # fetched, which is what lost MODIS_SP 2012.
-          AVAIL=$(curl -sf --retry 6 --retry-delay 10 --retry-all-errors \
-                    --connect-timeout 20 --max-time 120 \
-                    "https://firms.modaps.eosdis.nasa.gov/api/data_availability/csv/${FIRMS_MAP_KEY}/ALL") || {
-            echo "::error::data_availability unreachable after retries"; exit 1; }
-          LINE=$(echo "$AVAIL" | grep "^${SRC}," || true)
-          if [ -z "$LINE" ]; then echo "::warning::${SRC} absent from data_availability"; exit 0; fi
-          MIN=$(echo "$LINE" | cut -d, -f2); MAX=$(echo "$LINE" | cut -d, -f3)
-          START="${Y}-01-01"; END="${Y}-12-31"
-          [ "$START" \< "$MIN" ] && START="$MIN"
-          [ "$END" \> "$MAX" ] && END="$MAX"
-          if [ "$START" \> "$END" ]; then echo "slice outside availability, nothing to do"; exit 0; fi
-          echo "fetching $SRC $START .. $END"
-          python3 tools/firms_fetch.py --source "$SRC" --start "$START" --end "$END" \
+          # Dates come from the plan job, which resolved availability once.
+          echo "fetching ${{ matrix.source }} ${{ matrix.start }} .. ${{ matrix.end }}"
+          python3 tools/firms_fetch.py --source "${{ matrix.source }}" \
+            --start "${{ matrix.start }}" --end "${{ matrix.end }}" \
             --out ./chunks --workers 4
       - name: Pack the slice
         if: steps.resume.outputs.done != 'true'
