@@ -62,6 +62,33 @@ SAT_SQL = """CASE upper(trim(CAST(satellite AS VARCHAR)))
 
 _write_lock = Lock()
 
+# Pace requests to the published budget instead of discovering it by failing.
+#
+# The key allows 5000 transactions per 10 minutes, and a whole-globe request
+# costs 36 transactions per day requested, so a 5-day window costs 180. That is
+# 500 transactions a minute, or one 5-day window every 21.6 seconds. Firing
+# faster only earns HTTP 400s and long waits, and the archive takes just as
+# long either way.
+TX_PER_DAY = 36
+BUDGET_PER_MIN = 5000 / 10.0
+_pace_lock = Lock()
+_next_start = [0.0]
+
+
+def pace(span: int, safety: float = 1.08) -> None:
+    """Block until this request may start, keeping the global rate legal."""
+    interval = (span * TX_PER_DAY) / BUDGET_PER_MIN * 60.0 * safety
+    while True:
+        with _pace_lock:
+            now = time.monotonic()
+            start = max(now, _next_start[0])
+            _next_start[0] = start + interval
+        wait = start - now
+        if wait <= 0:
+            return
+        time.sleep(wait)
+        return
+
 
 # The server answers an exhausted budget with HTTP 400 and this body. It is not
 # a transient network error: the quota window is 10 minutes, so backing off in
@@ -82,6 +109,7 @@ def fetch(key: str, source: str, day: date, span: int, tries: int = 6,
     attempt = 0
     waited = 0
     while True:
+        pace(span)
         try:
             with urllib.request.urlopen(url, timeout=600) as r:
                 body = r.read().decode("utf-8", "replace")
