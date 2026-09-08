@@ -57,10 +57,6 @@ jobs:
       matrix: ${{ fromJson(needs.plan.outputs.matrix) }}
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - run: pip install --quiet duckdb
       - name: Skip if this slice was already fetched
         id: resume
         env:
@@ -80,6 +76,12 @@ jobs:
             echo "done=false" >> "$GITHUB_OUTPUT"
           fi
 
+      - uses: actions/setup-python@v5
+        if: steps.resume.outputs.done != 'true'
+        with:
+          python-version: "3.12"
+      - if: steps.resume.outputs.done != 'true'
+        run: pip install --quiet duckdb
       - name: Fetch ${{ matrix.source }} ${{ matrix.year }}
         if: steps.resume.outputs.done != 'true' 
         env:
