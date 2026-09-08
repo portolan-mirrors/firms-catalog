@@ -216,8 +216,14 @@ def aws_session(config: dict[str, str]):
     """
     import boto3
 
+    # In CI there is no named profile: credentials arrive as environment
+    # variables. Honour the configured profile only when it exists locally.
+    import os
+    profile = config.get("profile") or None
+    if os.environ.get("AWS_ACCESS_KEY_ID"):
+        profile = None
     return boto3.Session(
-        profile_name=config.get("profile") or None,
+        profile_name=profile,
         region_name=config.get("region") or None,
     )
 

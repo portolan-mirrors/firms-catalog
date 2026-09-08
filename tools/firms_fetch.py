@@ -42,6 +42,15 @@ SOURCES = {
     "VIIRS_NOAA21_NRT": ("VIIRS_NOAA21", "nrt"),
 }
 
+# VIIRS confidence reaches us in two encodings. The area API returns the
+# documented single letters l/n/h. The bulk NRT feeds return the full words
+# low/nominal/high. Both mean the same thing, so store the documented letters.
+# MODIS publishes an integer 0-100 and is left exactly as published.
+# Source: https://www.earthdata.nasa.gov/data/tools/firms/active-fire-data-attributes-modis-viirs
+CONF_SQL = """CASE lower(trim(CAST(confidence AS VARCHAR)))
+    WHEN 'low' THEN 'l' WHEN 'nominal' THEN 'n' WHEN 'high' THEN 'h'
+    ELSE trim(CAST(confidence AS VARCHAR)) END"""
+
 # Satellite codes as published, mapped to platform names.
 SAT_SQL = """CASE upper(trim(CAST(satellite AS VARCHAR)))
     WHEN 'T' THEN 'Terra' WHEN 'TERRA' THEN 'Terra'
@@ -89,12 +98,17 @@ def normalize(con, body: str, source: str, out: Path) -> int:
             if name in header else f"CAST(NULL AS {cast})"
 
     has_type = "type" in header
+    # The bulk NRT feeds omit `instrument`. It is not guessed: each feed is a
+    # single instrument on a single platform, named in the product
+    # (SUOMI_VIIRS_C2, J1_VIIRS_C2, J2_VIIRS_C2, MODIS_C6_1), and the
+    # `satellite` column in the same file confirms it (N/N20/N21 vs T/A).
     inst = ("trim(CAST(instrument AS VARCHAR))" if "instrument" in header
             else ("'MODIS'" if sensor == "MODIS" else "'VIIRS'"))
     with tempfile.NamedTemporaryFile("w", suffix=".csv", delete=False) as tf:
         tf.write(body)
         tmp = tf.name
     try:
+        CONF = CONF_SQL
         sql = f"""
         COPY (
           SELECT
@@ -116,7 +130,7 @@ def normalize(con, body: str, source: str, out: Path) -> int:
             {col('track')} AS track,
             {col('frp')} AS frp,
             trim(CAST(daynight AS VARCHAR)) AS daynight,
-            trim(CAST(confidence AS VARCHAR)) AS confidence,
+            {CONF} AS confidence,
             TRY_CAST(trim(CAST(confidence AS VARCHAR)) AS INTEGER) AS confidence_pct,
             {col('type', 'INTEGER') if has_type else 'CAST(NULL AS INTEGER)'} AS type
           FROM read_csv('{tmp}', header=true, all_varchar=true,

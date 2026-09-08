@@ -48,10 +48,15 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--data", required=True, help="detections/ directory holding year=*/")
     ap.add_argument("--out", required=True, help="collection.json path")
+    ap.add_argument("--pmtiles", default="fire.pmtiles")
+    ap.add_argument("--pmtiles-layers", default="aggregate,features")
+    ap.add_argument("--styles", default="default.json:Fire detection density,"
+                                        "avg-frp.json:Average fire radiative power")
+    ap.add_argument("--thumbnail", default="detections.thumb.jpg")
     a = ap.parse_args()
 
     data = Path(a.data)
-    files = sorted(data.glob("year=*/detections.parquet"))
+    files = sorted(data.glob("year=*/*.parquet"))
     if not files:
         raise SystemExit(f"no year partitions under {data}")
     glob_all = ",".join(f"'{f}'" for f in files)
@@ -67,6 +72,28 @@ def main() -> int:
     now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     iso = lambda d: d.strftime("%Y-%m-%dT%H:%M:%SZ")  # noqa: E731
 
+    # Visualization: the PMTiles archive is a collection-level rel:pmtiles link
+    # carrying a non-empty pmtiles:layers array (PORTO-FMT-011, PORTO-FMT-012).
+    # Styles are collection-level assets with the style role, exactly one of
+    # which also carries default (PORTO-CORE-069, PORTO-CORE-070).
+    assets = {}
+    styles = [x for x in a.styles.split(",") if x]
+    for i, spec in enumerate(styles):
+        fn, _, title = spec.partition(":")
+        roles = ["style", "default"] if i == 0 else ["style"]
+        assets[f"style-{Path(fn).stem}"] = {
+            "href": f"./styles/{fn}",
+            "type": "application/vnd.mapbox.style+json",
+            "title": title or fn,
+            "roles": roles,
+        }
+    assets["thumbnail"] = {
+        "href": f"./{a.thumbnail}",
+        "type": "image/jpeg",
+        "title": "Global fire detection density, rendered from the default style",
+        "roles": ["thumbnail"],
+    }
+
     col = {
         "type": "Collection",
         "stac_version": "1.1.0",
@@ -74,6 +101,7 @@ def main() -> int:
             "https://schemas.portolan-sdi.org/portolan/v0.2.0/schema.json",
             "https://schemas.portolan-sdi.org/incubating/partition/v1.0.0/schema.json",
             "https://stac-extensions.github.io/table/v1.2.0/schema.json",
+            "https://stac-extensions.github.io/web-map-links/v1.3.0/schema.json",
         ],
         "id": "detections",
         "title": "Active Fire Detections (MODIS and VIIRS)",
@@ -111,12 +139,13 @@ def main() -> int:
             {"name": "year", "type": "int32", "description": "Year of acquisition (UTC)."}
         ],
         "partition:file_count": len(files),
-        "partition:glob": f"{S3}/detections/year=*/detections.parquet",
+        "partition:glob": f"{S3}/detections/year=*/*.parquet",
         "table:primary_geometry": "geometry",
         "table:row_count": n,
         "table:columns": [
             {"name": nm, "type": ty, "description": desc} for nm, ty, desc in COLUMNS
         ],
+        "assets": assets,
         "links": [
             {"rel": "root", "href": "../catalog.json", "type": "application/json",
              "title": "NASA FIRMS Active Fire Detections"},
@@ -128,6 +157,10 @@ def main() -> int:
              "title": "Collection README"},
             {"rel": "via", "href": "https://firms.modaps.eosdis.nasa.gov/",
              "type": "text/html", "title": "NASA FIRMS (upstream source)"},
+            {"rel": "pmtiles", "href": f"./{a.pmtiles}",
+             "type": "application/vnd.pmtiles",
+             "title": "Fire detections, aggregate bands plus raw points",
+             "pmtiles:layers": [x for x in a.pmtiles_layers.split(",") if x]},
         ],
     }
     out = Path(a.out)

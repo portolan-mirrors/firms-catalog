@@ -1,0 +1,90 @@
+{
+  "version": 8,
+  "name": "Average fire radiative power",
+  "sources": {
+    "data": {
+      "type": "vector",
+      "url": "pmtiles://../fire.pmtiles"
+    }
+  },
+  "layers": [
+    {
+      "id": "fire-cells",
+      "type": "fill",
+      "source": "data",
+      "source-layer": "aggregate",
+      "maxzoom": 10,
+      "paint": {
+        "fill-color": [
+          "step",
+          [
+            "coalesce",
+            [
+              "get",
+              "avg_frp"
+            ],
+            0
+          ],
+          "#2c3d5a",
+          5,
+          "#3f6d8f",
+          15,
+          "#59a1a0",
+          40,
+          "#a8c268",
+          100,
+          "#f2b134",
+          250,
+          "#e8722c",
+          500,
+          "#d1382a"
+        ],
+        "fill-opacity": 0.78,
+        "fill-outline-color": "rgba(0,0,0,0.2)"
+      }
+    },
+    {
+      "id": "fire-points",
+      "type": "circle",
+      "source": "data",
+      "source-layer": "features",
+      "minzoom": 10,
+      "paint": {
+        "circle-color": [
+          "step",
+          [
+            "coalesce",
+            [
+              "get",
+              "frp"
+            ],
+            0
+          ],
+          "#4a5bd4",
+          10,
+          "#39a0a8",
+          50,
+          "#c9cf4a",
+          200,
+          "#f0932b",
+          1000,
+          "#d63031"
+        ],
+        "circle-radius": [
+          "interpolate",
+          [
+            "linear"
+          ],
+          [
+            "zoom"
+          ],
+          10,
+          2.2,
+          14,
+          6
+        ],
+        "circle-opacity": 0.9
+      }
+    }
+  ]
+}

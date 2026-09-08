@@ -109,11 +109,47 @@ derived for the expansion]**:
 The mapping lives in `SAT_SQL` in
 [`tools/firms_fetch.py`](https://github.com/portolan-mirrors/firms-catalog/blob/main/tools/firms_fetch.py).
 
+## Transforms applied to the upstream data
+
+Nothing is filtered, interpolated, or reclassified. Every row FIRMS publishes is
+carried. These are the complete changes made between the upstream response and
+the published file, in the order they happen. The code is
+[`tools/firms_fetch.py`](https://github.com/portolan-mirrors/firms-catalog/blob/main/tools/firms_fetch.py)
+and [`tools/firms_build.py`](https://github.com/portolan-mirrors/firms-catalog/blob/main/tools/firms_build.py).
+
+| # | Transform | Why, and what it is based on |
+|---|---|---|
+| 1 | `acq_date` + `acq_time` composed into `acq_datetime` (UTC) | FIRMS publishes the date and an integer HHMM separately. Both original columns are still carried; `acq_time` is dropped because `acq_datetime` holds it exactly. |
+| 2 | Satellite short codes expanded to platform names | `T`→`Terra`, `A`→`Aqua`, `N`→`Suomi-NPP`, `N20`→`NOAA-20`, `N21`→`NOAA-21`. The codes are [documented upstream](https://www.earthdata.nasa.gov/data/tools/firms/active-fire-data-attributes-modis-viirs); only the expansion is ours. |
+| 3 | `instrument` supplied where the feed omits it | The bulk near-real-time feeds ship 13 columns and no `instrument`; the area API ships 14 and has it. This is **not a guess**: each bulk feed is one instrument on one platform, named in the product (`SUOMI_VIIRS_C2`, `J1_VIIRS_C2`, `J2_VIIRS_C2`, `MODIS_C6_1`), and the `satellite` column in the same file confirms it. |
+| 4 | VIIRS `confidence` normalised to the documented letters | The area API returns `l`/`n`/`h`. The bulk feeds return `low`/`nominal`/`high` for the same thing. Storing both would put two encodings in one column, so the documented letters win. MODIS integers are untouched. |
+| 5 | `confidence_pct` added | An integer copy of `confidence` for MODIS rows, so a numeric filter does not need a cast. NULL for VIIRS. **No MODIS-to-VIIRS crosswalk is published**, because none is documented upstream. |
+| 6 | `latitude` and `longitude` dropped | `geometry` carries the same values. Recover them with `ST_X(geometry)` and `ST_Y(geometry)`. |
+| 7 | Rows physically ordered along a Hilbert curve | Keeps row-group bounds spatially tight so a bounding-box filter prunes without reading data. **No sort-key column is published** — `gpio sort hilbert` computes the curve internally. |
+| 8 | Written as GeoParquet 2.0, zstd level 15, 100k-row row groups | Native Parquet `GEOMETRY` logical type, CRS84. |
+
+Near-real-time and science-quality rows are never mixed within a sensor and date:
+FIRMS publishes non-overlapping date ranges for its `_NRT` and `_SP` sources, so
+the two cannot double-count. The `quality` column records which a row came from.
+
+### Derived aggregates
+
+The A5 hexagon aggregates published alongside the detections are built by
+[`tools/firms_aggregate.py`](https://github.com/portolan-mirrors/firms-catalog/blob/main/tools/firms_aggregate.py).
+`gpio` pivots exactly one categorical column per run, so day, sensor and
+day/night are aggregated separately and joined on `a5_cell`. That join is safe
+because every run uses the same resolution and therefore the same cells.
+**The cells hold no cross-tabs**: there is a `count_modis` and a
+`count_20260903`, but no `count_modis_20260903`. A query that needs one sensor
+on one day must go to the detections, not the cells.
+
+
 ## Quirks that produce silently wrong answers
 
 **`confidence` is not comparable across instruments.** MODIS publishes an
-integer 0-100. VIIRS publishes `l`, `n`, or `h` **[attested]**. Both are stored
-verbatim in one VARCHAR column. `confidence_pct` holds the numeric value for
+integer 0-100. VIIRS publishes `l`, `n`, or `h` **[attested]**. Both live in one
+VARCHAR column. VIIRS values are normalised to the documented letters, because
+the bulk feeds spell them out as `low`/`nominal`/`high`; see transform 4. `confidence_pct` holds the numeric value for
 MODIS rows only. This catalog deliberately publishes **no crosswalk** between
 the two, because no authoritative threshold table was found. Do not invent one.
 `WHERE confidence > 80` silently excludes every VIIRS row.

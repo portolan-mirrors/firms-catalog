@@ -1,0 +1,82 @@
+name: refresh-nrt
+
+# Refresh the rolling near-real-time window.
+#
+# This reads the FIRMS bulk CSV feeds, which need no MAP_KEY and cost no API
+# transactions, so it can run as often as FIRMS republishes them. Measured on
+# 2026-09-07, those files were regenerated 20-29 minutes before the check, and
+# the observation-to-availability latency was 2h37m.
+#
+# It writes year=<Y>/live.parquet, never the archive's detections.parquet, so
+# the hourly run re-uploads about 34 MB rather than the whole year. Both parts
+# match the collection's partition:glob.
+#
+# Nothing is committed. Extents, row counts and `updated` are regenerated and
+# uploaded, so the repository keeps only the stable catalog definition and the
+# git history stays readable.
+
+on:
+  schedule:
+    - cron: "17 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: refresh-nrt
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install tooling
+        run: |
+          pip install --quiet duckdb boto3 'rashid>=0.1.8,<0.2.0' \
+            'git+https://github.com/geoparquet/geoparquet-io.git@main'
+          sudo apt-get update -qq && sudo apt-get install -y -qq tippecanoe
+
+      - name: Fetch the rolling window
+        run: python3 tools/firms_nrt.py --window 7d --out ./staging/nrt-chunks
+
+      - name: Build the live part
+        run: |
+          python3 tools/firms_build.py --chunks ./staging/nrt-chunks \
+            --out ./staging/publish/detections --name live.parquet --memory 6GB
+
+      - name: Rebuild aggregates and the combined tileset
+        run: |
+          python3 tools/firms_aggregate.py --data ./staging/publish/detections \
+            --out ./staging/agg --tiles ./staging/publish \
+            --resolution 10 --levels 6
+          mv ./staging/publish/fire.pmtiles ./staging/publish/fire.pmtiles
+
+      - name: Regenerate styles and collection metadata
+        run: |
+          python3 tools/make_styles.py --out ./staging/publish/styles --points-min-zoom 10
+          cp catalog/detections/detections.thumb.jpg ./staging/publish/ || true
+          python3 tools/make_collection.py --data ./staging/publish/detections \
+            --out catalog/detections/collection.json
+
+      - name: Validate before uploading anything
+        env:
+          CI_LIGHT: "1"
+        run: python3 tests/run_all.py
+
+      - name: Upload data
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.SOURCE_COOP_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SOURCE_COOP_SECRET_ACCESS_KEY }}
+        run: python3 tools/upload_data.py --confirm
+
+      - name: Publish catalog metadata
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.SOURCE_COOP_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SOURCE_COOP_SECRET_ACCESS_KEY }}
+        run: python3 tools/publish.py --confirm

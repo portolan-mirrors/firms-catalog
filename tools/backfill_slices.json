@@ -1,0 +1,218 @@
+[
+ {
+  "source": "MODIS_SP",
+  "year": 2000
+ },
+ {
+  "source": "MODIS_SP",
+  "year": 2001
+ },
+ {
+  "source": "MODIS_SP",
+  "year": 2002
+ },
+ {
+  "source": "MODIS_SP",
+  "year": 2003
+ },
+ {
+  "source": "MODIS_SP",
+  "year": 2004
+ },
+ {
+  "source": "MODIS_SP",
+  "year": 2005
+ },
+ {
+  "source": "MODIS_SP",
+  "year": 2006
+ },
+ {
+  "source": "MODIS_SP",
+  "year": 2007
+ },
+ {
+  "source": "MODIS_SP",
+  "year": 2008
+ },
+ {
+  "source": "MODIS_SP",
+  "year": 2009
+ },
+ {
+  "source": "MODIS_SP",
+  "year": 2010
+ },
+ {
+  "source": "MODIS_SP",
+  "year": 2011
+ },
+ {
+  "source": "MODIS_SP",
+  "year": 2012
+ },
+ {
+  "source": "MODIS_SP",
+  "year": 2013
+ },
+ {
+  "source": "MODIS_SP",
+  "year": 2014
+ },
+ {
+  "source": "MODIS_SP",
+  "year": 2015
+ },
+ {
+  "source": "MODIS_SP",
+  "year": 2016
+ },
+ {
+  "source": "MODIS_SP",
+  "year": 2017
+ },
+ {
+  "source": "MODIS_SP",
+  "year": 2018
+ },
+ {
+  "source": "MODIS_SP",
+  "year": 2019
+ },
+ {
+  "source": "MODIS_SP",
+  "year": 2020
+ },
+ {
+  "source": "MODIS_SP",
+  "year": 2021
+ },
+ {
+  "source": "MODIS_SP",
+  "year": 2022
+ },
+ {
+  "source": "MODIS_SP",
+  "year": 2023
+ },
+ {
+  "source": "MODIS_SP",
+  "year": 2024
+ },
+ {
+  "source": "MODIS_SP",
+  "year": 2025
+ },
+ {
+  "source": "MODIS_SP",
+  "year": 2026
+ },
+ {
+  "source": "VIIRS_SNPP_SP",
+  "year": 2012
+ },
+ {
+  "source": "VIIRS_SNPP_SP",
+  "year": 2013
+ },
+ {
+  "source": "VIIRS_SNPP_SP",
+  "year": 2014
+ },
+ {
+  "source": "VIIRS_SNPP_SP",
+  "year": 2015
+ },
+ {
+  "source": "VIIRS_SNPP_SP",
+  "year": 2016
+ },
+ {
+  "source": "VIIRS_SNPP_SP",
+  "year": 2017
+ },
+ {
+  "source": "VIIRS_SNPP_SP",
+  "year": 2018
+ },
+ {
+  "source": "VIIRS_SNPP_SP",
+  "year": 2019
+ },
+ {
+  "source": "VIIRS_SNPP_SP",
+  "year": 2020
+ },
+ {
+  "source": "VIIRS_SNPP_SP",
+  "year": 2021
+ },
+ {
+  "source": "VIIRS_SNPP_SP",
+  "year": 2022
+ },
+ {
+  "source": "VIIRS_SNPP_SP",
+  "year": 2023
+ },
+ {
+  "source": "VIIRS_SNPP_SP",
+  "year": 2024
+ },
+ {
+  "source": "VIIRS_SNPP_SP",
+  "year": 2025
+ },
+ {
+  "source": "VIIRS_SNPP_SP",
+  "year": 2026
+ },
+ {
+  "source": "VIIRS_NOAA20_SP",
+  "year": 2018
+ },
+ {
+  "source": "VIIRS_NOAA20_SP",
+  "year": 2019
+ },
+ {
+  "source": "VIIRS_NOAA20_SP",
+  "year": 2020
+ },
+ {
+  "source": "VIIRS_NOAA20_SP",
+  "year": 2021
+ },
+ {
+  "source": "VIIRS_NOAA20_SP",
+  "year": 2022
+ },
+ {
+  "source": "VIIRS_NOAA20_SP",
+  "year": 2023
+ },
+ {
+  "source": "VIIRS_NOAA20_SP",
+  "year": 2024
+ },
+ {
+  "source": "VIIRS_NOAA20_SP",
+  "year": 2025
+ },
+ {
+  "source": "VIIRS_NOAA20_SP",
+  "year": 2026
+ },
+ {
+  "source": "VIIRS_NOAA21_NRT",
+  "year": 2024
+ },
+ {
+  "source": "VIIRS_NOAA21_NRT",
+  "year": 2025
+ },
+ {
+  "source": "VIIRS_NOAA21_NRT",
+  "year": 2026
+ }
+]

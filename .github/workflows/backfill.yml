@@ -1,0 +1,94 @@
+name: backfill
+
+# Fetch the historical FIRMS record one sensor-year at a time.
+#
+# The FIRMS map key allows 5000 transactions per 10 minutes and a whole-globe
+# one-day request costs 36, so the whole archive is about 710,000 transactions,
+# or roughly 24 hours of wall clock. That budget is GLOBAL to the key, so the
+# matrix runs one slice at a time: parallel jobs would simply race each other
+# into HTTP 400 "Exceeding allowed transaction limit".
+#
+# Each slice averages 26 minutes, well inside the 6 hour per-job cap. The
+# workflow as a whole may run for days, which is allowed.
+#
+# These jobs need NO cloud credentials. They publish each slice as a workflow
+# artifact, because a 24 hour run outlives a Source Cooperative session token.
+# publish-backfill.yml does the short, credentialed upload afterwards.
+
+on:
+  workflow_dispatch:
+    inputs:
+      only_source:
+        description: "Limit to one source (blank = all)"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.build.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: build
+        run: |
+          python3 - <<'EOF' >> "$GITHUB_OUTPUT"
+          import json, os
+          s = json.load(open("tools/backfill_slices.json"))
+          only = os.environ.get("ONLY", "").strip()
+          if only:
+              s = [x for x in s if x["source"] == only]
+          print("matrix=" + json.dumps({"include": s}))
+          EOF
+        env:
+          ONLY: ${{ inputs.only_source }}
+
+  fetch:
+    needs: plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    strategy:
+      max-parallel: 1        # the transaction budget is global to the key
+      fail-fast: false
+      matrix: ${{ fromJson(needs.plan.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install --quiet duckdb
+      - name: Fetch ${{ matrix.source }} ${{ matrix.year }}
+        env:
+          FIRMS_MAP_KEY: ${{ secrets.FIRMS_MAP_KEY }}
+        run: |
+          set -euo pipefail
+          SRC='${{ matrix.source }}'; Y='${{ matrix.year }}'
+          # Clamp the slice to the range FIRMS actually serves for this source.
+          AVAIL=$(curl -sf "https://firms.modaps.eosdis.nasa.gov/api/data_availability/csv/${FIRMS_MAP_KEY}/ALL")
+          LINE=$(echo "$AVAIL" | grep "^${SRC}," || true)
+          if [ -z "$LINE" ]; then echo "::warning::${SRC} absent from data_availability"; exit 0; fi
+          MIN=$(echo "$LINE" | cut -d, -f2); MAX=$(echo "$LINE" | cut -d, -f3)
+          START="${Y}-01-01"; END="${Y}-12-31"
+          [ "$START" \< "$MIN" ] && START="$MIN"
+          [ "$END" \> "$MAX" ] && END="$MAX"
+          if [ "$START" \> "$END" ]; then echo "slice outside availability, nothing to do"; exit 0; fi
+          echo "fetching $SRC $START .. $END"
+          python3 tools/firms_fetch.py --source "$SRC" --start "$START" --end "$END" \
+            --out ./chunks --workers 4
+      - name: Pack the slice
+        run: |
+          if [ -d ./chunks ] && [ -n "$(find ./chunks -name '*.parquet' -size +0c 2>/dev/null)" ]; then
+            mkdir -p out && tar -czf "out/${{ matrix.source }}_${{ matrix.year }}.tar.gz" -C ./chunks .
+            ls -la out/
+          else
+            echo "no data for this slice"; mkdir -p out
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: slice-${{ matrix.source }}-${{ matrix.year }}
+          path: out/
+          retention-days: 30
+          if-no-files-found: ignore

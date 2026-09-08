@@ -60,7 +60,7 @@ def main() -> int:
     a = ap.parse_args()
 
     data, out = Path(a.data), Path(a.out)
-    if not sorted(data.glob("year=*/detections.parquet")):
+    if not sorted(data.glob("year=*/*.parquet")):
         raise SystemExit(f"no year partitions under {data}")
     out.mkdir(parents=True, exist_ok=True)
 
@@ -72,12 +72,13 @@ def main() -> int:
     # here. This staging file never reaches the published detections.
     src = tmp / "input.parquet"
     con.execute(f"""
-        COPY (SELECT * EXCLUDE (geometry),
+        COPY (SELECT * EXCLUDE (geometry, year),
                      CAST(year(acq_date) AS INTEGER) AS year,
                      CAST(month(acq_date) AS UTINYINT) AS month,
                      strftime(acq_date, '%Y%m%d') AS day,
                      geometry
-              FROM read_parquet('{data}/year=*/detections.parquet'))
+              FROM read_parquet('{data}/year=*/*.parquet',
+                                hive_partitioning=true))
         TO '{src}' (FORMAT PARQUET, COMPRESSION zstd)
     """)
     print(f"staged pivot input -> {src}")

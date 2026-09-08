@@ -6,8 +6,8 @@ directory it points at exists. Dependency-free and offline, so it runs in
 milliseconds on a clean checkout.
 
 CI clones the metadata and not the bytes, because .gitignore keeps data out of
-git. Set CI_LIGHT=1 there. It exempts asset hrefs with a data suffix, and
-nothing else. Every structural link still resolves. Leave CI_LIGHT unset
+git. Set CI_LIGHT=1 there. It exempts asset hrefs and link hrefs with a data
+suffix, and nothing else. Every structural link still resolves. Leave CI_LIGHT unset
 locally, where the bytes are on disk, and the gate checks every href.
 
 Run: python3 tests/test_links.py
@@ -76,6 +76,12 @@ for path in documents:
     for link in doc.get("links", []):
         href = link.get("href", "")
         if not href or is_remote(href):
+            continue
+        # The web-map-links extension references PMTiles as a link, not an
+        # asset, so the data exemption has to cover links too. A PMTiles
+        # archive is data and lives in object storage like any other.
+        if is_unpublished_data(href):
+            skipped += 1
             continue
         checked += 1
         if not (path.parent / href).resolve().exists():

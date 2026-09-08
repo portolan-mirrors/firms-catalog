@@ -53,14 +53,15 @@ def candidates(chunks: Path, year: int) -> list[str]:
     return out
 
 
-def build_year(con, chunks: Path, year: int, outdir: Path, verbose: bool) -> int:
+def build_year(con, chunks: Path, year: int, outdir: Path, verbose: bool,
+               part_name: str = "detections.parquet") -> int:
     files = candidates(chunks, year)
     if not files:
         return 0
     lst = ",".join(f"'{f}'" for f in files)
     dest = outdir / f"year={year}"
     dest.mkdir(parents=True, exist_ok=True)
-    final = dest / "detections.parquet"
+    final = dest / part_name
 
     with tempfile.TemporaryDirectory() as td:
         staged = Path(td) / "rows.parquet"
@@ -103,6 +104,9 @@ def main() -> int:
     ap.add_argument("--chunks", required=True)
     ap.add_argument("--out", required=True)
     ap.add_argument("--years", help="comma list; default = every year found")
+    ap.add_argument("--name", default="detections.parquet",
+                    help="part file name inside year=<Y>/. The hourly refresh writes\n"
+                         "live.parquet so it never rewrites the archive part.")
     ap.add_argument("--memory", default="8GB")
     ap.add_argument("-v", "--verbose", action="store_true")
     a = ap.parse_args()
@@ -129,7 +133,7 @@ def main() -> int:
     print(f"building {len(years)} year(s): {years[0]}..{years[-1]}", flush=True)
     total = 0
     for y in years:
-        total += build_year(con, chunks, y, outdir, a.verbose)
+        total += build_year(con, chunks, y, outdir, a.verbose, a.name)
     print(f"TOTAL {total:,} rows across {len(years)} year files", flush=True)
     return 0
 
