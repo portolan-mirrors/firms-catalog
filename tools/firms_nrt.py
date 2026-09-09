@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+import time
 import urllib.request
 from pathlib import Path
 
@@ -36,6 +37,7 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--window", default="7d", choices=["24h", "48h", "7d"])
     ap.add_argument("--out", required=True, help="chunk directory")
+    ap.add_argument("--retries", type=int, default=6)
     a = ap.parse_args()
 
     con = duckdb.connect()
@@ -45,15 +47,34 @@ def main() -> int:
         url = f"{BULK}/{path.format(w=a.window)}"
         outdir = Path(a.out) / source
         outdir.mkdir(parents=True, exist_ok=True)
+        # These feeds are occasionally unreachable for minutes at a time. An
+        # unretried failure loses the whole refresh, and the schedule then just
+        # waits an hour to try again.
+        body = None
+        delay = 5.0
+        for attempt in range(a.retries):
+            try:
+                with urllib.request.urlopen(url, timeout=600) as r:
+                    body = r.read().decode("utf-8", "replace")
+                break
+            except Exception as exc:  # noqa: BLE001
+                if attempt == a.retries - 1:
+                    failed += 1
+                    print(f"FAIL {source} after {a.retries} tries: {exc}",
+                          file=sys.stderr, flush=True)
+                else:
+                    print(f"  retry {source} ({exc})", file=sys.stderr, flush=True)
+                    time.sleep(delay)
+                    delay = min(delay * 2, 120)
+        if body is None:
+            continue
         try:
-            with urllib.request.urlopen(url, timeout=600) as r:
-                body = r.read().decode("utf-8", "replace")
             n = normalize(con, body, source, outdir / f"bulk_{a.window}.parquet")
             total += n
             print(f"  {source}: {n:,} rows", flush=True)
         except Exception as exc:  # noqa: BLE001
             failed += 1
-            print(f"FAIL {source}: {exc}", file=sys.stderr, flush=True)
+            print(f"FAIL {source} (parse): {exc}", file=sys.stderr, flush=True)
     print(f"NRT {a.window}: {total:,} rows, {failed} feed(s) failed", flush=True)
     return 1 if failed else 0
 

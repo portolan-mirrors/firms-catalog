@@ -93,4 +93,7 @@ jobs:
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.SOURCE_COOP_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.SOURCE_COOP_SECRET_ACCESS_KEY }}
+          # Source Cooperative's CLI issues temporary credentials, which need a
+          # session token. Harmless and empty when permanent keys are used.
+          AWS_SESSION_TOKEN: ${{ secrets.SOURCE_COOP_SESSION_TOKEN }}
         run: python3 tools/upload_data.py --confirm
