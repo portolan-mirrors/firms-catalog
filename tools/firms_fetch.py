@@ -95,6 +95,21 @@ def pace(span: int, safety: float = 1.08) -> None:
 # seconds just burns retries and leaves gaps in the archive.
 RATE_LIMITED = "exceeding allowed transaction limit"
 
+# Connection-level failures mean the host or the network is gone, not that this
+# window is bad. Retrying every window through an outage is pure waste: the
+# pacer waits 23s before each attempt, so 73 doomed windows burned 2.4 hours of
+# runner time on 2026-09-09. Give up on the whole slice instead and let the
+# resume path collect it on a later run.
+CONNECTION_ERRORS = (
+    "network is unreachable", "connection refused", "temporary failure in name resolution",
+    "nodename nor servname", "name or service not known", "no route to host",
+    "connection reset by peer",
+)
+
+
+class NetworkDown(RuntimeError):
+    """The host is unreachable, so the whole slice should stop."""
+
 
 def fetch(key: str, source: str, day: date, span: int, tries: int = 6,
           rate_limit_waits: int = 40) -> str:
@@ -127,6 +142,15 @@ def fetch(key: str, source: str, day: date, span: int, tries: int = 6,
                 except Exception:  # noqa: BLE001
                     text = ""
             blob = f"{exc} {text}".lower()
+            if any(m in blob for m in CONNECTION_ERRORS):
+                # The host is gone. Fail this window quickly so the caller can
+                # decide the whole slice is doomed, instead of each window
+                # spending 90 seconds discovering the same outage.
+                attempt += 1
+                if attempt >= 2:
+                    raise
+                time.sleep(2)
+                continue
             if RATE_LIMITED in blob or "transaction limit" in blob:
                 waited += 1
                 if waited > rate_limit_waits:
@@ -238,6 +262,8 @@ def main() -> int:
     done = total = failed = 0
     t0 = time.time()
 
+    consecutive_conn_failures = [0]
+
     def work(job):
         """Fetch AND normalize inside the worker.
 
@@ -264,8 +290,25 @@ def main() -> int:
                 except Exception as exc:  # noqa: BLE001
                     failed += 1
                     print(f"FAIL {a.source} {jd} +{js}d: {exc}", file=sys.stderr, flush=True)
+                    blob = str(exc).lower()
+                    if any(m in blob for m in CONNECTION_ERRORS):
+                        consecutive_conn_failures[0] += 1
+                        # Nothing has succeeded and the host keeps refusing:
+                        # this is an outage, not a bad window.
+                        if done == 0 and consecutive_conn_failures[0] >= 5:
+                            print(f"{a.source}: aborting, host unreachable "
+                                  f"({consecutive_conn_failures[0]} connection "
+                                  f"failures, no window succeeded). "
+                                  f"Re-run to resume.", file=sys.stderr, flush=True)
+                            # Without this, leaving the pool blocks until every
+                            # already-queued window finishes its own retries.
+                            pool.shutdown(wait=False, cancel_futures=True)
+                            return 2
+                    else:
+                        consecutive_conn_failures[0] = 0
                     continue
                 done += 1
+                consecutive_conn_failures[0] = 0
             futs.clear()
             rate = done / max(time.time() - t0, 1)
             eta = (len(jobs) - done) / max(rate, 1e-6) / 60

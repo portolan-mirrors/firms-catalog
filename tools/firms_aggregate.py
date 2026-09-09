@@ -31,6 +31,11 @@ from pathlib import Path
 
 import duckdb
 
+SCHEME = "a5"
+# H3 r6 holds 170k cells for this data against A5 r10's 189k, and H3 r3 holds
+# 6.7k against A5 r6's 9.2k, so these pairings compare like with like.
+DEFAULTS = {"a5": {"base": 10, "levels": "6"},
+            "h3": {"base": 6, "levels": "3"}}
 BASE_RES = 8
 OVERVIEWS = "6,4"   # r2 (143 cells) is unreadable at full zoom-out; r4 (1,224) reads well
 METRICS = "sum:frp,avg:frp,max:frp"
@@ -54,10 +59,17 @@ def main() -> int:
     ap.add_argument("--data", required=True, help="detections/ dir holding year=*/")
     ap.add_argument("--out", required=True, help="aggregate output dir")
     ap.add_argument("--tiles", help="also write a combined pyramid here")
-    ap.add_argument("--resolution", type=int, default=BASE_RES)
-    ap.add_argument("--levels", default=OVERVIEWS)
+    ap.add_argument("--scheme", choices=["a5", "h3"], default=SCHEME)
+    ap.add_argument("--resolution", type=int)
+    ap.add_argument("--levels")
     ap.add_argument("--features-min-zoom", type=int, default=FEATURES_MIN_ZOOM)
     a = ap.parse_args()
+
+    d = DEFAULTS[a.scheme]
+    if a.resolution is None:
+        a.resolution = d["base"]
+    if a.levels is None:
+        a.levels = d["levels"]
 
     data, out = Path(a.data), Path(a.out)
     if not sorted(data.glob("year=*/*.parquet")):
@@ -87,8 +99,8 @@ def main() -> int:
     parts = {}
     for dim, limit in DIMENSIONS.items():
         p = tmp / f"{dim}.parquet"
-        print(f"[{dim}] aggregate at r{a.resolution}")
-        run(["gpio", "process", "aggregate", "a5", str(src), str(p),
+        print(f"[{dim}] {a.scheme} aggregate at r{a.resolution}")
+        run(["gpio", "process", "aggregate", a.scheme, str(src), str(p),
              "--resolution", str(a.resolution), "--metric", METRICS,
              "--breakdown", dim, "--breakdown-limit", str(limit),
              "--out-geometry", "polygon", "--geoparquet-version", "2.0"])
@@ -96,6 +108,7 @@ def main() -> int:
 
     # Join the pivots onto the first product, which supplies geometry and the
     # shared rollups.
+    cell = f"{a.scheme}_cell"
     base = parts["day"]
     others = [d for d in DIMENSIONS if d != "day"]
     sel = ["b.* EXCLUDE (geometry)"]
@@ -106,7 +119,7 @@ def main() -> int:
             f"SELECT column_name FROM (DESCRIBE SELECT * FROM '{parts[d]}')").fetchall()]
         keep = [c[0] for c in cols if c[0].startswith("count_")]
         sel += [f"{al}.\"{c}\"" for c in keep]
-        joins.append(f"JOIN '{parts[d]}' {al} USING (a5_cell)")
+        joins.append(f"JOIN '{parts[d]}' {al} USING ({cell})")
     combined = out / "cells.parquet"
     con.execute(f"""
         COPY (SELECT {', '.join(sel)}, b.geometry

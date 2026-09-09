@@ -67,6 +67,13 @@
   <div class="hd"><h1>FIRMS tiling preview</h1>
     <div class="sub" id="hdsub">loading…</div></div>
 
+  <div class="sec"><div class="grp">Grid</div>
+    <div class="seg" id="scheme">
+      <button data-s="a5" class="on">A5 pentagons</button>
+      <button data-s="h3">H3 hexagons</button></div>
+    <div class="kv" style="margin-top:7px"><span>cells in view</span><b id="ncells">–</b></div>
+  </div>
+
   <div class="sec"><div class="grp">Mode</div>
     <div class="seg" id="mode">
       <button data-m="auto" class="on">Auto @ z10</button>
@@ -126,9 +133,15 @@ maplibregl.addProtocol("pmtiles", new pmtiles.Protocol().tile);
 // Where the tiles live. Defaults to the published archive so the hosted app
 // works with no configuration; ?tiles=./fire.pmtiles points it at a local
 // build for development.
-const PUBLISHED_TILES =
-  "https://data.source.coop/portolan-mirrors/firms-catalog/detections/fire.pmtiles";
-const TILES = new URLSearchParams(location.search).get("tiles") || PUBLISHED_TILES;
+const BASE = "https://data.source.coop/portolan-mirrors/firms-catalog/detections";
+const qs = new URLSearchParams(location.search);
+// Two grid schemes over identical data, for comparison. H3 r6 holds 170k cells
+// here against A5 r10's 189k, so they are at comparable density.
+const TILESETS = {
+  a5: qs.get("tiles")    || `${BASE}/fire.pmtiles`,
+  h3: qs.get("tiles-h3") || `${BASE}/fire-h3.pmtiles`,
+};
+const TILES = TILESETS.a5;
 const COLLECTION =
   "https://data.source.coop/portolan-mirrors/firms-catalog/detections/collection.json";
 
@@ -147,7 +160,9 @@ async function loadSummary(){
   }
 }
 
-const AGG_LAYER="aggregate", PT_LAYER="features";
+const AGG_SRC_LAYER="aggregate", PT_SRC_LAYER="features";
+const aggId = () => "agg-" + S.scheme;
+const ptId  = () => "pts-" + S.scheme;
 const RAMPS={
   count:   {stops:[[1,"#2c3d5a"],[5,"#3f6d8f"],[20,"#59a1a0"],[75,"#a8c268"],[250,"#f2b134"],[1000,"#e8722c"],[4000,"#d1382a"]],unit:""},
   avg_frp: {stops:[[0,"#2c3d5a"],[5,"#3f6d8f"],[15,"#59a1a0"],[40,"#a8c268"],[100,"#f2b134"],[250,"#e8722c"],[500,"#d1382a"]],unit:"MW"},
@@ -159,27 +174,26 @@ const SENSORS=[["viirs_snpp","S-NPP"],["viirs_noaa20","NOAA-20"],["viirs_noaa21"
 const SENSOR_VAL={viirs_snpp:"VIIRS_SNPP",viirs_noaa20:"VIIRS_NOAA20",viirs_noaa21:"VIIRS_NOAA21",modis:"MODIS"};
 
 let S={mode:"auto",metric:"count",minFrp:0,d0:0,d1:0,sensor:null,dn:"all",days:[],
-        bands:[],ptsMinZoom:null,offAgg:new Set(),offPts:new Set()};
+        scheme:"a5",bands:{},ptsMinZoom:{},offAgg:new Set(),offPts:new Set()};
 
 // gpio records the zoom band of every aggregate level, and of the raw-point
 // band, in the archive metadata. Read it rather than assume a threshold: the
 // points band does not exist below its minzoom, so a viewer that guesses shows
 // an empty map and looks broken.
-async function loadBands(url){
+async function loadBands(scheme,url){
   try{
-    const pm=new pmtiles.PMTiles(url);
-    const md=await pm.getMetadata();
+    const md=await new pmtiles.PMTiles(url).getMetadata();
     let py=md["gpio:pyramid"];
     if(typeof py==="string")py=JSON.parse(py);
     if(py&&py.bands){
-      S.bands=py.bands;
-      const f=py.bands.find(b=>b.layer===PT_LAYER);
-      S.ptsMinZoom=f?f.minzoom:null;
+      S.bands[scheme]=py.bands;
+      const f=py.bands.find(b=>b.layer===PT_SRC_LAYER);
+      S.ptsMinZoom[scheme]=f?f.minzoom:null;
     }
-  }catch(e){console.warn("no pyramid metadata",e);}
+  }catch(e){console.warn("no pyramid metadata for "+scheme,e);}
 }
 function bandAt(z){
-  return S.bands.find(b=>z>=b.minzoom&&(b.maxzoom==null||z<=b.maxzoom));
+  return (S.bands[S.scheme]||[]).find(b=>z>=b.minzoom&&(b.maxzoom==null||z<=b.maxzoom));
 }
 
 const map=new maplibregl.Map({container:"map",hash:true,
@@ -224,13 +238,13 @@ function facetCount(){
 }
 
 function apply(){
-  if(!map.getLayer(AGG_LAYER))return;
+  if(!map.getLayer(aggId()))return;
   const cexpr=activeCountExpr(), ramp=RAMPS[S.metric];
   const colorExpr = S.metric==="count"
     ? stepExpr(cexpr,ramp.stops)
     : step(S.metric,ramp.stops);
 
-  map.setPaintProperty(AGG_LAYER,"fill-color",colorExpr);
+  map.setPaintProperty(aggId(),"fill-color",colorExpr);
   const aggValue = S.metric==="count" ? cexpr : ["coalesce",["get",S.metric],0];
   const aggFilter=["all",[">",cexpr,0]]
     .concat(hiddenClassFilters(aggValue, RAMPS[S.metric], S.offAgg));
@@ -238,10 +252,10 @@ function apply(){
     const f=S.metric==="count"?"max_frp":S.metric;
     aggFilter.push([">=",["coalesce",["get",f],0],S.minFrp]);
   }
-  map.setFilter(AGG_LAYER,aggFilter);
+  map.setFilter(aggId(),aggFilter);
 
-  if(map.getLayer(PT_LAYER)){
-    map.setPaintProperty(PT_LAYER,"circle-color",step("frp",RAMPS.frp.stops));
+  if(map.getLayer(ptId())){
+    map.setPaintProperty(ptId(),"circle-color",step("frp",RAMPS.frp.stops));
     const pf=["all"];
     if(S.minFrp>0)pf.push([">=",["coalesce",["get","frp"],0],S.minFrp]);
     if(!allDays()){
@@ -252,7 +266,7 @@ function apply(){
     if(S.dn!=="all")pf.push(["==",["get","daynight"],S.dn]);
     for(const f of hiddenClassFilters(["coalesce",["get","frp"],0],RAMPS.frp,S.offPts))
       pf.push(f);
-    map.setFilter(PT_LAYER,pf.length>1?pf:null);
+    map.setFilter(ptId(),pf.length>1?pf:null);
   }
 
   renderLegend();
@@ -308,22 +322,30 @@ function hiddenClassFilters(valueExpr, ramp, off){
   return out;
 }
 function showingPoints(){
-  const z=map.getZoom(), cut=S.ptsMinZoom==null?10:S.ptsMinZoom;
+  const z=map.getZoom(), cut=S.ptsMinZoom[S.scheme]==null?10:S.ptsMinZoom[S.scheme];
   if(S.mode==="agg")return false;
   if(S.mode==="pts")return z>=cut;
   return z>=cut;
 }
 
+function hideInactive(){
+  for(const k of Object.keys(TILESETS)){
+    if(k===S.scheme)continue;
+    for(const id of ["agg-"+k,"pts-"+k])
+      if(map.getLayer(id))map.setLayoutProperty(id,"visibility","none");
+  }
+}
 function updateMode(){
+  hideInactive();
   const z=map.getZoom();
-  const cut=S.ptsMinZoom==null?10:S.ptsMinZoom;
+  const cut=S.ptsMinZoom[S.scheme]==null?10:S.ptsMinZoom[S.scheme];
   const ptsHere=z>=cut;
   let showAgg,showPts;
   if(S.mode==="auto"){showAgg=!ptsHere;showPts=ptsHere;}
   else if(S.mode==="agg"){showAgg=true;showPts=false;}
   else {showAgg=false;showPts=ptsHere;}
-  if(map.getLayer(AGG_LAYER))map.setLayoutProperty(AGG_LAYER,"visibility",showAgg?"visible":"none");
-  if(map.getLayer(PT_LAYER))map.setLayoutProperty(PT_LAYER,"visibility",showPts?"visible":"none");
+  if(map.getLayer(aggId()))map.setLayoutProperty(aggId(),"visibility",showAgg?"visible":"none");
+  if(map.getLayer(ptId()))map.setLayoutProperty(ptId(),"visibility",showPts?"visible":"none");
   const b=bandAt(z);
   const lbl=showAgg?(b&&b.level!=="features"?`aggregate r${b.level}`:"aggregate")
                    :(showPts?"points":"—");
@@ -339,17 +361,24 @@ function updateMode(){
 
 map.on("load",async ()=>{
   loadSummary();
-  await loadBands(TILES);
-  map.addSource("fire",{type:"vector",url:"pmtiles://"+TILES});
-  map.addLayer({id:AGG_LAYER,type:"fill",source:"fire","source-layer":AGG_LAYER,
-    paint:{"fill-color":step("count",RAMPS.count.stops),"fill-opacity":.74,
-           "fill-outline-color":"rgba(0,0,0,.22)"}});
-  map.addLayer({id:PT_LAYER,type:"circle",source:"fire","source-layer":PT_LAYER,
-    layout:{visibility:"none"},
-    paint:{"circle-radius":["interpolate",["linear"],["zoom"],9,1.6,12,3,15,5.5],
-           "circle-color":step("frp",RAMPS.frp.stops),"circle-opacity":.9}});
+  await Promise.all(Object.entries(TILESETS).map(([k,u])=>loadBands(k,u)));
+  for(const [k,url] of Object.entries(TILESETS)){
+    map.addSource("src-"+k,{type:"vector",url:"pmtiles://"+url});
+    map.addLayer({id:"agg-"+k,type:"fill",source:"src-"+k,"source-layer":AGG_SRC_LAYER,
+      layout:{visibility:"none"},
+      paint:{"fill-color":step("count",RAMPS.count.stops),"fill-opacity":.74,
+             "fill-outline-color":"rgba(0,0,0,.22)"}});
+    map.addLayer({id:"pts-"+k,type:"circle",source:"src-"+k,"source-layer":PT_SRC_LAYER,
+      layout:{visibility:"none"},
+      paint:{"circle-radius":["interpolate",["linear"],["zoom"],9,1.6,12,3,15,5.5],
+             "circle-color":step("frp",RAMPS.frp.stops),"circle-opacity":.9}});
+  }
   renderControls(); apply();
 });
+document.getElementById("scheme").onclick=e=>{
+  if(!e.target.dataset.s)return;
+  S.scheme=e.target.dataset.s; S.days=[]; apply();
+};
 
 // The chip DOM is rendered FROM state, never edited independently. An earlier
 // version toggled classes on click and separately re-rendered on discovery,
@@ -371,6 +400,8 @@ function renderControls(){
   }
   document.querySelectorAll("#mode button").forEach(b=>
     b.classList.toggle("on", b.dataset.m===S.mode));
+  document.querySelectorAll("#scheme button").forEach(b=>
+    b.classList.toggle("on", b.dataset.s===S.scheme));
   document.querySelectorAll("#dn button").forEach(b=>
     b.classList.toggle("on", b.dataset.v===S.dn));
   document.getElementById("metric").value=S.metric;
@@ -411,13 +442,16 @@ map.on("move",()=>{
   if(nowPts!==lastPts){lastPts=nowPts;apply();}   // ramp changed with the layer
 });
 map.on("idle",()=>{
-  const ly=[AGG_LAYER,PT_LAYER].filter(l=>map.getLayer(l)&&
+  const ly=[aggId(),ptId()].filter(l=>map.getLayer(l)&&
     map.getLayoutProperty(l,"visibility")!=="none");
   document.getElementById("nf").textContent=ly.length
     ? map.queryRenderedFeatures({layers:ly}).length.toLocaleString() : "0";
+  const cells=map.getLayer(aggId())
+    ? map.queryRenderedFeatures({layers:[aggId()]}).length : 0;
+  document.getElementById("ncells").textContent=cells.toLocaleString();
   // discover day columns once
   if(!S.days.length){
-    const f=map.querySourceFeatures("fire",{sourceLayer:AGG_LAYER});
+    const f=map.querySourceFeatures("src-"+S.scheme,{sourceLayer:AGG_SRC_LAYER});
     if(f.length){
       S.days=Object.keys(f[0].properties).filter(k=>/^count_\d{8}$/.test(k))
         .map(k=>k.slice(6)).sort();
@@ -426,7 +460,7 @@ map.on("idle",()=>{
   }
 });
 map.on("click",e=>{
-  const ly=[AGG_LAYER,PT_LAYER].filter(l=>map.getLayer(l)&&
+  const ly=[aggId(),ptId()].filter(l=>map.getLayer(l)&&
     map.getLayoutProperty(l,"visibility")!=="none");
   const f=map.queryRenderedFeatures(e.point,{layers:ly});
   const pop=document.getElementById("pop");
