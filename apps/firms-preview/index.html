@@ -179,7 +179,7 @@ const SENSORS=[["viirs_snpp","S-NPP"],["viirs_noaa20","NOAA-20"],["viirs_noaa21"
 const SENSOR_VAL={viirs_snpp:"VIIRS_SNPP",viirs_noaa20:"VIIRS_NOAA20",viirs_noaa21:"VIIRS_NOAA21",modis:"MODIS"};
 
 let S={dataset:"live",mode:"auto",metric:"count",minFrp:0,d0:0,d1:0,sensor:null,dn:"all",days:[],
-        bands:[],ptsMinZoom:null,available:{},timeKeys:[],offAgg:new Set(),offPts:new Set()};
+        bands:[],ptsMinZoom:null,available:{},timeKeys:[],breaks:null,offAgg:new Set(),offPts:new Set()};
 
 // gpio records the zoom band of every aggregate level, and of the raw-point
 // band, in the archive metadata. Read it rather than assume a threshold: the
@@ -190,6 +190,13 @@ async function loadBands(ds,url){
     const md=await new pmtiles.PMTiles(url).getMetadata();
     let py=md["gpio:pyramid"];
     if(typeof py==="string")py=JSON.parse(py);
+    // Class breaks computed from the data at build time, keyed by the zoom
+    // range of the band they describe. A fixed ramp cannot serve both a week
+    // and a year: coarse cells here run an order of magnitude higher.
+    let br=md["firms:breaks"];
+    if(typeof br==="string"){ try{ br=JSON.parse(br); }catch{ br=null; } }
+    S.breaks=br||null;
+
     const vl=md.vector_layers||JSON.parse(md.json||"{}").vector_layers||[];
     const agg=vl.find(l=>l.id===AGG_SRC_LAYER);
     S.timeKeys=agg?Object.keys(agg.fields||{})
@@ -273,15 +280,16 @@ function apply(){
 }
 function applyNow(){
   if(!map.getLayer(aggId()))return;
-  const cexpr=activeCountExpr(), ramp=RAMPS[S.metric];
+  const cexpr=activeCountExpr();
+  const stops=shippedStops(S.metric)||RAMPS[S.metric].stops;
   const colorExpr = S.metric==="count"
-    ? stepExpr(cexpr,ramp.stops)
-    : step(S.metric,ramp.stops);
+    ? stepExpr(cexpr,stops)
+    : step(S.metric,stops);
 
   map.setPaintProperty(aggId(),"fill-color",colorExpr);
   const aggValue = S.metric==="count" ? cexpr : ["coalesce",["get",S.metric],0];
   const aggFilter=["all",[">",cexpr,0]]
-    .concat(hiddenClassFilters(aggValue, RAMPS[S.metric], S.offAgg));
+    .concat(hiddenClassFilters(aggValue, {stops}, S.offAgg));
   if(S.minFrp>0){
     const f=S.metric==="count"?"max_frp":S.metric;
     aggFilter.push([">=",["coalesce",["get",f],0],S.minFrp]);
@@ -319,10 +327,31 @@ function applyNow(){
 // Which ramp the map is actually drawing right now. The legend must follow the
 // visible layer, not the aggregate metric: at point zooms the cells are gone
 // and a count ramp would describe nothing on screen.
+// Break set for the zoom on screen, or null to use the built-in ramp.
+function shippedStops(metric){
+  if(!S.breaks) return null;
+  const z=map.getZoom();
+  for(const [range,sets] of Object.entries(S.breaks)){
+    const [lo,hi]=range.split("-").map(Number);
+    if(z>=lo && z<=hi && sets && sets[metric]) {
+      const vals=sets[metric];
+      const base=RAMPS[metric]?RAMPS[metric].stops:RAMPS.count.stops;
+      // Keep the palette, replace the thresholds. The first class starts at the
+      // ramp's own floor so a cell with any detections is still coloured.
+      return [[base[0][0], base[0][1]]].concat(
+        vals.slice(0, base.length-1).map((v,i)=>[v, base[i+1][1]]));
+    }
+  }
+  return null;
+}
+
 function activeRamp(){
-  return showingPoints() ? {key:"frp", ...RAMPS.frp, title:"Fire radiative power"}
-                         : {key:S.metric, ...RAMPS[S.metric],
-                            title:document.querySelector(`#metric option[value="${S.metric}"]`).textContent};
+  if(showingPoints()) return {key:"frp", ...RAMPS.frp, title:"Fire radiative power"};
+  const shipped=shippedStops(S.metric);
+  return {key:S.metric, ...RAMPS[S.metric],
+          stops: shipped || RAMPS[S.metric].stops,
+          title:document.querySelector(`#metric option[value="${S.metric}"]`).textContent
+                + (shipped?" (data breaks)":"")};
 }
 function offSet(){ return showingPoints() ? S.offPts : S.offAgg; }
 
@@ -504,12 +533,13 @@ document.getElementById("frp").oninput=e=>{
   S.minFrp=+e.target.value;
   document.getElementById("frpv").textContent=S.minFrp+" MW";apply();};
 
-let lastPts=null;
+let lastPts=null, lastStops=null;
 map.on("move",()=>{
   document.getElementById("z").textContent=map.getZoom().toFixed(1);
   updateMode();
   const nowPts=showingPoints();
-  if(nowPts!==lastPts){lastPts=nowPts;apply();}   // ramp changed with the layer
+  const nowStops=JSON.stringify(shippedStops(S.metric));
+  if(nowPts!==lastPts||nowStops!==lastStops){lastPts=nowPts;lastStops=nowStops;apply();}
 });
 // Do not hang the readouts on `idle`. Any source that never finishes — a 404
 // archive, a basemap hitting network errors — keeps the map from reaching
