@@ -208,8 +208,12 @@ const map=new maplibregl.Map({container:"map",hash:true,
     sprite:"https://protomaps.github.io/basemaps-assets/sprites/v4/dark",
     sources:{protomaps:{type:"vector",url:"pmtiles://"+BASEMAP,
       attribution:'<a href="https://protomaps.com">Protomaps</a> &copy; <a href="https://openstreetmap.org">OpenStreetMap</a>'}},
+    // layers() wants the theme OBJECT from namedTheme(), not the flavour name.
+    // Passing the name returns layers whose paint colours are all undefined,
+    // and MapLibre then rejects the style without loading anything.
     // The fire layers are added on load, so they sit above every basemap layer.
-    layers:protomaps_themes_base.layers("protomaps","dark",{lang:"en"}),
+    layers:protomaps_themes_base.layers(
+      "protomaps", protomaps_themes_base.namedTheme("dark"), {lang:"en"}),
   },
   center:[20,0],zoom:2,minZoom:-2,renderWorldCopies:true});
 window._map=map;
