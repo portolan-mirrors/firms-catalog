@@ -1,10 +1,10 @@
 {
   "version": 8,
-  "name": "Fire detections, last 7 days (density)",
+  "name": "Fire detections, 2020 (density)",
   "sources": {
     "data": {
       "type": "vector",
-      "url": "pmtiles://../fire.pmtiles"
+      "url": "pmtiles://../fire-2020.pmtiles"
     }
   },
   "layers": [
@@ -30,20 +30,20 @@
               0
             ],
             "#2c3d5a",
-            19,
+            233,
             "#3f6d8f",
-            86,
+            1258,
             "#59a1a0",
-            413,
+            4977,
             "#a8c268",
-            1193,
+            10737,
             "#f2b134",
-            3394,
+            16374,
             "#e8722c",
-            6406,
+            20884,
             "#d1382a"
           ],
-          7,
+          5,
           [
             "step",
             [
@@ -55,68 +55,22 @@
               0
             ],
             "#2c3d5a",
-            3,
+            31,
             "#3f6d8f",
-            9,
+            164,
             "#59a1a0",
-            22,
+            569,
             "#a8c268",
-            43,
+            928,
             "#f2b134",
-            103,
+            1409,
             "#e8722c",
-            215,
+            2289,
             "#d1382a"
           ]
         ],
         "fill-opacity": 0.78,
         "fill-outline-color": "rgba(0,0,0,0.2)"
-      },
-      "maxzoom": 10
-    },
-    {
-      "id": "fire-points",
-      "type": "circle",
-      "source": "data",
-      "source-layer": "features",
-      "minzoom": 10,
-      "paint": {
-        "circle-color": [
-          "step",
-          [
-            "coalesce",
-            [
-              "get",
-              "frp"
-            ],
-            0
-          ],
-          "#4a5bd4",
-          10,
-          "#39a0a8",
-          50,
-          "#c9cf4a",
-          200,
-          "#f2b134",
-          500,
-          "#e8722c",
-          1000,
-          "#d1382a"
-        ],
-        "circle-radius": [
-          "interpolate",
-          [
-            "linear"
-          ],
-          [
-            "zoom"
-          ],
-          10,
-          2.2,
-          14,
-          6
-        ],
-        "circle-opacity": 0.9
       }
     }
   ]

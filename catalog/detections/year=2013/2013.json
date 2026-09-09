@@ -1,0 +1,85 @@
+{
+  "type": "Feature",
+  "stac_version": "1.1.0",
+  "stac_extensions": [
+    "https://stac-extensions.github.io/table/v1.2.0/schema.json"
+  ],
+  "id": "2013",
+  "collection": "detections",
+  "bbox": [
+    -179.8844,
+    -84.189,
+    179.8904,
+    82.3009
+  ],
+  "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+      [
+        [
+          -179.88441,
+          -84.18895
+        ],
+        [
+          179.89041,
+          -84.18895
+        ],
+        [
+          179.89041,
+          82.3009
+        ],
+        [
+          -179.88441,
+          82.3009
+        ],
+        [
+          -179.88441,
+          -84.18895
+        ]
+      ]
+    ]
+  },
+  "properties": {
+    "title": "Active fire detections, 2013",
+    "datetime": null,
+    "start_datetime": "2013-01-01T00:06:00Z",
+    "end_datetime": "2013-12-31T23:59:00Z",
+    "table:row_count": 23653487,
+    "firms:sensors": [
+      "MODIS",
+      "VIIRS_SNPP"
+    ]
+  },
+  "assets": {
+    "data": {
+      "href": "./detections.parquet",
+      "type": "application/vnd.apache.parquet",
+      "title": "2013 detections, GeoParquet 2.0",
+      "roles": [
+        "data"
+      ]
+    }
+  },
+  "links": [
+    {
+      "rel": "root",
+      "href": "../../catalog.json",
+      "type": "application/json"
+    },
+    {
+      "rel": "parent",
+      "href": "../collection.json",
+      "type": "application/json"
+    },
+    {
+      "rel": "collection",
+      "href": "../collection.json",
+      "type": "application/json"
+    },
+    {
+      "rel": "self",
+      "href": "https://data.source.coop/portolan-mirrors/firms-catalog/detections/year=2013/2013.json",
+      "type": "application/geo+json"
+    }
+  ]
+}

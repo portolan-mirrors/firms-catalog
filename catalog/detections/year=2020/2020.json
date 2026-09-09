@@ -1,0 +1,111 @@
+{
+  "type": "Feature",
+  "stac_version": "1.1.0",
+  "stac_extensions": [
+    "https://stac-extensions.github.io/table/v1.2.0/schema.json"
+  ],
+  "id": "2020",
+  "collection": "detections",
+  "bbox": [
+    -179.8726,
+    -87.4737,
+    179.9924,
+    82.3357
+  ],
+  "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+      [
+        [
+          -179.8726,
+          -87.47369
+        ],
+        [
+          179.99236,
+          -87.47369
+        ],
+        [
+          179.99236,
+          82.3357
+        ],
+        [
+          -179.8726,
+          82.3357
+        ],
+        [
+          -179.8726,
+          -87.47369
+        ]
+      ]
+    ]
+  },
+  "properties": {
+    "title": "Active fire detections, 2020",
+    "datetime": null,
+    "start_datetime": "2020-01-01T00:30:00Z",
+    "end_datetime": "2020-12-31T23:58:00Z",
+    "table:row_count": 25184030,
+    "firms:sensors": [
+      "MODIS",
+      "VIIRS_NOAA20",
+      "VIIRS_SNPP"
+    ]
+  },
+  "assets": {
+    "data": {
+      "href": "./detections.parquet",
+      "type": "application/vnd.apache.parquet",
+      "title": "2020 detections, GeoParquet 2.0",
+      "roles": [
+        "data"
+      ]
+    },
+    "pmtiles": {
+      "href": "./fire-2020.pmtiles",
+      "type": "application/vnd.pmtiles",
+      "title": "2020 detections, vector tiles",
+      "roles": [
+        "visual",
+        "tiles"
+      ]
+    },
+    "style-avg-frp": {
+      "href": "./styles/avg-frp.json",
+      "type": "application/vnd.mapbox.style+json",
+      "title": "Fire radiative power, 2020 (average)",
+      "roles": [
+        "style"
+      ]
+    },
+    "style-default": {
+      "href": "./styles/default.json",
+      "type": "application/vnd.mapbox.style+json",
+      "title": "Fire detections, 2020 (density)",
+      "roles": [
+        "style"
+      ]
+    }
+  },
+  "links": [
+    {
+      "rel": "root",
+      "href": "../../catalog.json",
+      "type": "application/json"
+    },
+    {
+      "rel": "parent",
+      "href": "../collection.json",
+      "type": "application/json"
+    },
+    {
+      "rel": "collection",
+      "href": "../collection.json",
+      "type": "application/json"
+    },
+    {
+      "rel": "self",
+      "href": "https://data.source.coop/portolan-mirrors/firms-catalog/detections/year=2020/2020.json",
+      "type": "application/geo+json"
+    }
+  ]
+}

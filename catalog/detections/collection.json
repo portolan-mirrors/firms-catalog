@@ -264,6 +264,126 @@
         "aggregate",
         "features"
       ]
+    },
+    {
+      "rel": "item",
+      "href": "./year=2000/2000.json",
+      "type": "application/geo+json",
+      "title": "Active fire detections, 2000"
+    },
+    {
+      "rel": "item",
+      "href": "./year=2001/2001.json",
+      "type": "application/geo+json",
+      "title": "Active fire detections, 2001"
+    },
+    {
+      "rel": "item",
+      "href": "./year=2002/2002.json",
+      "type": "application/geo+json",
+      "title": "Active fire detections, 2002"
+    },
+    {
+      "rel": "item",
+      "href": "./year=2003/2003.json",
+      "type": "application/geo+json",
+      "title": "Active fire detections, 2003"
+    },
+    {
+      "rel": "item",
+      "href": "./year=2004/2004.json",
+      "type": "application/geo+json",
+      "title": "Active fire detections, 2004"
+    },
+    {
+      "rel": "item",
+      "href": "./year=2005/2005.json",
+      "type": "application/geo+json",
+      "title": "Active fire detections, 2005"
+    },
+    {
+      "rel": "item",
+      "href": "./year=2006/2006.json",
+      "type": "application/geo+json",
+      "title": "Active fire detections, 2006"
+    },
+    {
+      "rel": "item",
+      "href": "./year=2007/2007.json",
+      "type": "application/geo+json",
+      "title": "Active fire detections, 2007"
+    },
+    {
+      "rel": "item",
+      "href": "./year=2008/2008.json",
+      "type": "application/geo+json",
+      "title": "Active fire detections, 2008"
+    },
+    {
+      "rel": "item",
+      "href": "./year=2009/2009.json",
+      "type": "application/geo+json",
+      "title": "Active fire detections, 2009"
+    },
+    {
+      "rel": "item",
+      "href": "./year=2010/2010.json",
+      "type": "application/geo+json",
+      "title": "Active fire detections, 2010"
+    },
+    {
+      "rel": "item",
+      "href": "./year=2011/2011.json",
+      "type": "application/geo+json",
+      "title": "Active fire detections, 2011"
+    },
+    {
+      "rel": "item",
+      "href": "./year=2012/2012.json",
+      "type": "application/geo+json",
+      "title": "Active fire detections, 2012"
+    },
+    {
+      "rel": "item",
+      "href": "./year=2013/2013.json",
+      "type": "application/geo+json",
+      "title": "Active fire detections, 2013"
+    },
+    {
+      "rel": "item",
+      "href": "./year=2014/2014.json",
+      "type": "application/geo+json",
+      "title": "Active fire detections, 2014"
+    },
+    {
+      "rel": "item",
+      "href": "./year=2015/2015.json",
+      "type": "application/geo+json",
+      "title": "Active fire detections, 2015"
+    },
+    {
+      "rel": "item",
+      "href": "./year=2016/2016.json",
+      "type": "application/geo+json",
+      "title": "Active fire detections, 2016"
+    },
+    {
+      "rel": "item",
+      "href": "./year=2017/2017.json",
+      "type": "application/geo+json",
+      "title": "Active fire detections, 2017"
+    },
+    {
+      "rel": "item",
+      "href": "./year=2020/2020.json",
+      "type": "application/geo+json",
+      "title": "Active fire detections, 2020"
+    },
+    {
+      "rel": "item",
+      "href": "./year=2021/2021.json",
+      "type": "application/geo+json",
+      "title": "Active fire detections, 2021"
     }
   ]
 }

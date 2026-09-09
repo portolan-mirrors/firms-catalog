@@ -104,7 +104,7 @@
     <div class="sub" id="frpnote">Aggregate filters on the coloured FRP metric; points filter on their own FRP.</div>
   </div>
 
-  <div class="sec"><div class="grp"><span>Days</span><b id="dayrange" style="color:var(--fg)">all</b></div>
+  <div class="sec"><div class="grp"><span id="daylabel">Days</span><b id="dayrange" style="color:var(--fg)">all</b></div>
     <div class="dual" id="dual">
       <div class="track"></div><div class="fill" id="dfill"></div>
       <input type="range" id="d0" min="0" max="0" step="1" value="0">
@@ -216,7 +216,11 @@ async function loadBands(ds,url){
   }
 }
 function bandAt(z){
-  return (S.bands||[]).find(b=>z>=b.minzoom&&(b.maxzoom==null||z<=b.maxzoom));
+  // Band edges are integers and MapLibre requests floor(zoom), so a fractional
+  // zoom must floor too. Comparing 4.9 against a band ending at 4 and one
+  // starting at 5 matches neither, and the legend silently loses its breaks.
+  const iz=Math.floor(z);
+  return (S.bands||[]).find(b=>iz>=b.minzoom&&(b.maxzoom==null||iz<=b.maxzoom));
 }
 
 const map=new maplibregl.Map({container:"map",hash:true,
@@ -331,7 +335,21 @@ function applyNow(){
 function shippedStops(metric){
   if(!S.breaks) return null;
   const z=map.getZoom();
+  // Keyed by a5 level, so the classes hold steady across every zoom that draws
+  // the same cells and only change when the cells themselves do. Older
+  // archives keyed by zoom range are still read, below.
+  const band=bandAt(z);
+  const byLevel=band&&S.breaks["r"+band.level];
+  const sets=byLevel?byLevel.metrics:null;
+  if(sets){
+    if(!sets[metric]) return null;
+    const vals=sets[metric];
+    const base=RAMPS[metric]?RAMPS[metric].stops:RAMPS.count.stops;
+    return [[base[0][0], base[0][1]]].concat(
+      vals.slice(0, base.length-1).map((v,i)=>[v, base[i+1][1]]));
+  }
   for(const [range,sets] of Object.entries(S.breaks)){
+    if(!/^\d+-\d+$/.test(range)) continue;
     const [lo,hi]=range.split("-").map(Number);
     if(z>=lo && z<=hi && sets && sets[metric]) {
       const vals=sets[metric];
@@ -476,6 +494,10 @@ document.getElementById("dataset").onclick=e=>{
 // which let the visible selection and S drift apart.
 function renderControls(){
   const n=S.days.length;
+  const gran = n===0 ? "Time"
+             : S.days[0].length<=2 ? "Months"
+             : S.days[0].length>=8 ? "Days" : "Days";
+  const gl=document.getElementById("daylabel"); if(gl) gl.textContent=gran;
   const d0=document.getElementById("d0"), d1=document.getElementById("d1");
   if(n){
     d0.max=d1.max=String(n-1);

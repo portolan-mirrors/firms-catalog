@@ -1,79 +1,119 @@
 #!/usr/bin/env python3
-"""Write the MapLibre styles the collection ships.
+"""Generate the catalog's MapLibre styles from a tileset's own class breaks.
 
-The Portolan browser derives a legend only from a `fill` layer whose
-`fill-color` is a `match` or `step` expression. The A5 aggregate is a polygon
-layer, so a `step` ramp over it produces a real legend. The raw points are a
-`circle` layer and yield none, which is why the default style is an aggregate
-style and the point layer rides along above the aggregate's zoom band.
+A style written by hand carries one set of thresholds for the whole pyramid,
+and a pyramid whose levels differ in cell area cannot be served by one set: in
+this archive the coarse level runs about thirty times higher than the fine one,
+so thresholds tuned for either end saturate or flatten the other. The styles
+here therefore step on zoom first and on the metric second, taking both the
+thresholds and the zoom ranges from `firms:breaks` in the archive.
 
-Every style reads the single combined archive: `aggregate` at low zoom and
-`features` from the points band up.
+Generating rather than hand-writing also keeps the plain styles agreeing with
+the preview app, which reads the same breaks at runtime. They are ordinary
+style JSON with no extension of any kind, so any MapLibre viewer renders them.
 """
 from __future__ import annotations
 
 import argparse
 import json
+import subprocess
 from pathlib import Path
 
-# Relative, per formats.md: sources.data.url is "the relative path from
-# styles/ to the PMTiles file". The Portolan browser resolves this correctly
-# against the style's own href (normalizePmtilesUrl in StacMapLayer.js), so an
-# absolute URL buys nothing and costs portability.
-PMTILES = "../fire.pmtiles"
+# Seven classes, cool to hot. The break count in the archive is one fewer.
+PALETTE = ["#2c3d5a", "#3f6d8f", "#59a1a0", "#a8c268", "#f2b134", "#e8722c", "#d1382a"]
+FRP_POINTS = ["step", ["coalesce", ["get", "frp"], 0],
+              "#4a5bd4", 10, "#39a0a8", 50, "#c9cf4a", 200, "#f2b134",
+              500, "#e8722c", 1000, "#d1382a"]
 
-COUNT = [[1, "#2c3d5a"], [5, "#3f6d8f"], [20, "#59a1a0"], [75, "#a8c268"],
-         [250, "#f2b134"], [1000, "#e8722c"], [4000, "#d1382a"]]
-AVGFRP = [[0, "#2c3d5a"], [5, "#3f6d8f"], [15, "#59a1a0"], [40, "#a8c268"],
-          [100, "#f2b134"], [250, "#e8722c"], [500, "#d1382a"]]
-FRP_PT = [[0, "#4a5bd4"], [10, "#39a0a8"], [50, "#c9cf4a"], [200, "#f0932b"],
-          [1000, "#d63031"]]
+STYLES = {
+    "default": ("count", "Fire detections{suffix} (density)"),
+    "avg-frp": ("avg_frp", "Fire radiative power{suffix} (average)"),
+}
 
 
-def step(field, stops):
-    e = ["step", ["coalesce", ["get", field], 0], stops[0][1]]
-    for v, c in stops[1:]:
-        e += [v, c]
-    return e
+def metadata(pmtiles: str) -> dict:
+    out = subprocess.run(["pmtiles", "show", pmtiles, "--metadata"],
+                         capture_output=True, text=True, check=True).stdout
+    return json.loads(out[out.index("{"):])
 
 
-def style(name, field, stops, pts_min_zoom):
-    return {
-        "version": 8,
-        "name": name,
-        "sources": {"data": {"type": "vector", "url": f"pmtiles://{PMTILES}"}},
-        "layers": [
-            {"id": "fire-cells", "type": "fill", "source": "data",
-             "source-layer": "aggregate", "maxzoom": pts_min_zoom,
-             "paint": {"fill-color": step(field, stops), "fill-opacity": 0.78,
-                       "fill-outline-color": "rgba(0,0,0,0.2)"}},
-            {"id": "fire-points", "type": "circle", "source": "data",
-             "source-layer": "features", "minzoom": pts_min_zoom,
-             "paint": {"circle-color": step("frp", FRP_PT),
-                       "circle-radius": ["interpolate", ["linear"], ["zoom"],
-                                         pts_min_zoom, 2.2, 14, 6],
-                       "circle-opacity": 0.9}},
-        ],
-    }
+def steps(values: list) -> list:
+    """A step expression over one metric: colour, break, colour, break, ..."""
+    expr = [PALETTE[0]]
+    for v, colour in zip(values, PALETTE[1:]):
+        expr += [v, colour]
+    return expr
+
+
+def fill_color(metric: str, bands: list) -> list:
+    """Step on zoom, then on the metric, so each level uses its own classes."""
+    read = ["coalesce", ["get", metric], 0]
+    if len(bands) == 1:
+        return ["step", read] + steps(bands[0]["metrics"][metric])
+    expr = ["step", ["zoom"], ["step", read] + steps(bands[0]["metrics"][metric])]
+    for b in bands[1:]:
+        expr += [b["minzoom"], ["step", read] + steps(b["metrics"][metric])]
+    return expr
 
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--out", required=True)
-    ap.add_argument("--points-min-zoom", type=int, default=10)
+    ap.add_argument("pmtiles", help="archive to read breaks and bands from")
+    ap.add_argument("--out", required=True, help="directory to write styles into")
+    ap.add_argument("--tiles", required=True, help="href of the archive, as the style should reference it")
+    ap.add_argument("--suffix", default="", help="appended to each style name, e.g. ', 2020'")
     a = ap.parse_args()
-    out = Path(a.out); out.mkdir(parents=True, exist_ok=True)
-    z = a.points_min_zoom
 
-    written = []
-    for fname, title, field, stops in [
-        ("default.json", "Fire detections, last 7 days (density)", "count", COUNT),
-        ("avg-frp.json", "Fire radiative power, last 7 days (average)", "avg_frp", AVGFRP),
-    ]:
-        p = out / fname
-        p.write_text(json.dumps(style(title, field, stops, z), indent=2) + "\n")
-        written.append(p.name)
-    print(f"wrote {len(written)} style(s) to {out}: {', '.join(written)}")
+    md = metadata(a.pmtiles)
+    br = md.get("firms:breaks")
+    if isinstance(br, str):
+        br = json.loads(br)
+    if not br:
+        raise SystemExit(f"{a.pmtiles} carries no firms:breaks; run make_breaks.py first")
+    # Only the aggregate levels are classified; the point band has no cells.
+    bands = sorted((v for v in br.values() if v.get("metrics")),
+                   key=lambda b: b["minzoom"])
+
+    py = md.get("gpio:pyramid")
+    if isinstance(py, str):
+        py = json.loads(py)
+    pt = next((b for b in (py or {}).get("bands", []) if b.get("level") == "features"), None)
+
+    out = Path(a.out)
+    out.mkdir(parents=True, exist_ok=True)
+    for name, (metric, title) in STYLES.items():
+        if not all(metric in b["metrics"] for b in bands):
+            continue
+        cells = {
+            "id": "fire-cells", "type": "fill", "source": "data",
+            "source-layer": "aggregate",
+            "paint": {"fill-color": fill_color(metric, bands),
+                      "fill-opacity": 0.78,
+                      "fill-outline-color": "rgba(0,0,0,0.2)"},
+        }
+        layers = [cells]
+        # Raw points exist only where the archive actually carries them. Where
+        # they do, the cells stop rather than drawing underneath.
+        if pt:
+            cells["maxzoom"] = pt["minzoom"]
+            layers.append({
+                "id": "fire-points", "type": "circle", "source": "data",
+                "source-layer": "features", "minzoom": pt["minzoom"],
+                "paint": {"circle-color": FRP_POINTS,
+                          "circle-radius": ["interpolate", ["linear"], ["zoom"],
+                                            pt["minzoom"], 2.2, pt["minzoom"] + 4, 6],
+                          "circle-opacity": 0.9},
+            })
+        style = {
+            "version": 8,
+            "name": title.format(suffix=a.suffix),
+            "sources": {"data": {"type": "vector", "url": f"pmtiles://{a.tiles}"}},
+            "layers": layers,
+        }
+        p = out / f"{name}.json"
+        p.write_text(json.dumps(style, indent=2) + "\n")
+        zr = ", ".join(f"r?@z{b['minzoom']}+" for b in bands)
+        print(f"  {p}  ({metric}, {len(bands)} band(s): {zr})")
     return 0
 
 
