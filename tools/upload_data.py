@@ -135,9 +135,19 @@ def main() -> int:
         action="store_true",
         help="re-upload everything; skip the remote listing",
     )
+    parser.add_argument(
+        "--data-dir",
+        help=(
+            "override catalog.publish.yaml's data_dir. CI builds into the "
+            "checkout, while the configured value points at a local staging "
+            "tree beside it, so the two disagree without this."
+        ),
+    )
     args = parser.parse_args()
 
     config = load_config()
+    if args.data_dir:
+        config = dict(config, data_dir=args.data_dir)
     base = data_root(config)
 
     stale = unedited_sentinels(config)

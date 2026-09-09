@@ -76,7 +76,7 @@ jobs:
           # Source Cooperative's CLI issues temporary credentials, which need a
           # session token. Harmless and empty when permanent keys are used.
           AWS_SESSION_TOKEN: ${{ secrets.SOURCE_COOP_SESSION_TOKEN }}
-        run: python3 tools/upload_data.py --confirm
+        run: python3 tools/upload_data.py --confirm --data-dir ./staging/publish
 
       - name: Publish catalog metadata
         env:
