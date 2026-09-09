@@ -31,7 +31,8 @@ jobs:
   plan:
     runs-on: ubuntu-latest
     outputs:
-      years: ${{ steps.p.outputs.years }}
+      matrix: ${{ steps.p.outputs.matrix }}
+      skipped: ${{ steps.p.outputs.skipped }}
     steps:
       - uses: actions/checkout@v4
       - id: p
@@ -91,14 +92,13 @@ jobs:
 
   year:
     needs: plan
-    if: needs.plan.outputs.years != '[]'
+    if: fromJson(needs.plan.outputs.matrix).include[0] != null
     runs-on: ubuntu-latest
     timeout-minutes: 120
     strategy:
       max-parallel: 2
       fail-fast: false
-      matrix:
-        year: ${{ fromJson(needs.plan.outputs.years) }}
+      matrix: ${{ fromJson(needs.plan.outputs.matrix) }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
