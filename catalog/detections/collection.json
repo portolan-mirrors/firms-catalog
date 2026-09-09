@@ -23,7 +23,7 @@
     "FIRMS",
     "near real-time"
   ],
-  "updated": "2026-09-09T10:57:52Z",
+  "updated": "2026-09-09T12:06:06Z",
   "providers": [
     {
       "name": "NASA LANCE FIRMS",
@@ -181,8 +181,8 @@
         "style",
         "default"
       ],
-      "file:size": 1681,
-      "file:checksum": "12209d41aba12060ca9416fac41dd800c8717eead46eb31ac56c9edf84f2946e9992"
+      "file:size": 1617,
+      "file:checksum": "122094ac744b320d2048b1e10785a66b239d543cc2f13d189cb7253f9d1694671aea"
     },
     "style-avg-frp": {
       "href": "./styles/avg-frp.json",
@@ -191,8 +191,21 @@
       "roles": [
         "style"
       ],
-      "file:size": 1686,
-      "file:checksum": "12208f408eb77063b5a549a5c69174b810def0b210eeaeaf2554b1364b7de256d820"
+      "file:size": 1622,
+      "file:checksum": "12209565dd68c00f415fd1467f8bc7473f954d20e2e07050d7cf90c7f04ecb572c28"
+    },
+    "pmtiles": {
+      "href": "./fire.pmtiles",
+      "type": "application/vnd.pmtiles",
+      "title": "Fire detections, aggregate bands plus raw points",
+      "roles": [
+        "visual",
+        "data"
+      ],
+      "pmtiles:layers": [
+        "aggregate",
+        "features"
+      ]
     },
     "thumbnail": {
       "href": "./detections.thumb.jpg",

@@ -106,6 +106,17 @@ def main() -> int:
             "roles": roles,
             **file_meta(f"styles/{fn}"),
         }
+    # The tileset also ships as an asset, not only as the rel:pmtiles link the
+    # format spec requires. Clients that look for a renderable asset find it
+    # here; the link stays for those that follow the spec. Same bytes either way.
+    assets["pmtiles"] = {
+        "href": f"./{a.pmtiles}",
+        "type": "application/vnd.pmtiles",
+        "title": "Fire detections, aggregate bands plus raw points",
+        "roles": ["visual", "data"],
+        "pmtiles:layers": [x for x in a.pmtiles_layers.split(",") if x],
+    }
+
     assets["thumbnail"] = {
         "href": f"./{a.thumbnail}",
         "type": "image/jpeg",

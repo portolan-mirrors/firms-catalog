@@ -16,13 +16,11 @@ import argparse
 import json
 from pathlib import Path
 
-# Absolute, not relative. The Portolan browser fetches a style as JSON and
-# hands MapLibre the object, so a relative source URL resolves against the
-# viewer's own origin rather than the style's location: the browser rendered
-# the legend and never requested the tiles. The generator writes this from the
-# published base, so it stays correct on republish.
-PUBLIC_BASE = ("https://data.source.coop/portolan-mirrors/firms-catalog/detections")
-PMTILES = f"{PUBLIC_BASE}/fire.pmtiles"
+# Relative, per formats.md: sources.data.url is "the relative path from
+# styles/ to the PMTiles file". The Portolan browser resolves this correctly
+# against the style's own href (normalizePmtilesUrl in StacMapLayer.js), so an
+# absolute URL buys nothing and costs portability.
+PMTILES = "../fire.pmtiles"
 
 COUNT = [[1, "#2c3d5a"], [5, "#3f6d8f"], [20, "#59a1a0"], [75, "#a8c268"],
          [250, "#f2b134"], [1000, "#e8722c"], [4000, "#d1382a"]]

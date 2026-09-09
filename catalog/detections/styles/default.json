@@ -4,7 +4,7 @@
   "sources": {
     "data": {
       "type": "vector",
-      "url": "pmtiles://https://data.source.coop/portolan-mirrors/firms-catalog/detections/fire.pmtiles"
+      "url": "pmtiles://../fire.pmtiles"
     }
   },
   "layers": [
