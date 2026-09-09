@@ -156,7 +156,7 @@ const DATASETS = {
   },
   "2020": {
     label: "2020",
-    tiles: qs.get("tiles-2020") || "./fire-2020.pmtiles",
+    tiles: qs.get("tiles-2020") || "./fire-2020-monthly.pmtiles",
     summary: "2020-01-01 → 2020-12-31 · 25,184,030 detections",
   },
 };
@@ -179,7 +179,7 @@ const SENSORS=[["viirs_snpp","S-NPP"],["viirs_noaa20","NOAA-20"],["viirs_noaa21"
 const SENSOR_VAL={viirs_snpp:"VIIRS_SNPP",viirs_noaa20:"VIIRS_NOAA20",viirs_noaa21:"VIIRS_NOAA21",modis:"MODIS"};
 
 let S={dataset:"live",mode:"auto",metric:"count",minFrp:0,d0:0,d1:0,sensor:null,dn:"all",days:[],
-        bands:[],ptsMinZoom:null,available:{},offAgg:new Set(),offPts:new Set()};
+        bands:[],ptsMinZoom:null,available:{},timeKeys:[],offAgg:new Set(),offPts:new Set()};
 
 // gpio records the zoom band of every aggregate level, and of the raw-point
 // band, in the archive metadata. Read it rather than assume a threshold: the
@@ -190,6 +190,10 @@ async function loadBands(ds,url){
     const md=await new pmtiles.PMTiles(url).getMetadata();
     let py=md["gpio:pyramid"];
     if(typeof py==="string")py=JSON.parse(py);
+    const vl=md.vector_layers||JSON.parse(md.json||"{}").vector_layers||[];
+    const agg=vl.find(l=>l.id===AGG_SRC_LAYER);
+    S.timeKeys=agg?Object.keys(agg.fields||{})
+      .filter(k=>/^count_\d{1,8}$/.test(k)).map(k=>k.slice(6)):[];
     if(py&&py.bands){
       S.bands=py.bands;
       const f=py.bands.find(b=>b.layer===PT_SRC_LAYER);
@@ -400,8 +404,17 @@ async function mountDataset(){
     layout:{visibility:"none"},
     paint:{"circle-radius":["interpolate",["linear"],["zoom"],9,1.6,12,3,15,5.5],
            "circle-color":step("frp",RAMPS.frp.stops),"circle-opacity":.9}});
+  // Months arrive unpadded (count_1 … count_12), so sort numerically where the
+  // keys are numeric-width, lexically where they are dates.
+  const k=S.timeKeys.slice();
+  S.days = k.every(x=>x.length<=2) ? k.sort((a,b)=>+a-+b) : k.sort();
+  S.d0=0; S.d1=Math.max(0,S.days.length-1);
+
   showSummary();
   renderControls(); applyNow();
+  // Mounting is not itself a map event, and if the tiles are already cached no
+  // moveend or sourcedata follows, so ask for the readout directly.
+  scheduleReadout();
 }
 
 // Header text: the rolling window reads its own published collection so the
@@ -441,7 +454,10 @@ function renderControls(){
     const pct=i=>n>1?(i/(n-1))*100:0;
     const f=document.getElementById("dfill");
     f.style.left=pct(S.d0)+"%"; f.style.right=(100-pct(S.d1))+"%";
-    const fmt=d=>d.length>=8?`${d.slice(4,6)}/${d.slice(6,8)}`:`${d.slice(0,2)}/${d.slice(2,4)}`;
+    const MON=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+    const fmt=d=> d.length<=2 ? (MON[+d-1]||d)
+                : d.length>=8  ? `${d.slice(4,6)}/${d.slice(6,8)}`
+                :                `${d.slice(0,2)}/${d.slice(2,4)}`;
     document.getElementById("dayrange").textContent=
       allDays()?"all":(S.d0===S.d1?fmt(S.days[S.d0]):`${fmt(S.days[S.d0])} – ${fmt(S.days[S.d1])}`);
     document.getElementById("dlo").textContent=fmt(S.days[0]);
@@ -495,7 +511,19 @@ map.on("move",()=>{
   const nowPts=showingPoints();
   if(nowPts!==lastPts){lastPts=nowPts;apply();}   // ramp changed with the layer
 });
-map.on("idle",()=>{
+// Do not hang the readouts on `idle`. Any source that never finishes — a 404
+// archive, a basemap hitting network errors — keeps the map from reaching
+// "loaded", and idle then never fires. moveend/sourcedata always do.
+let _readoutPending=false;
+function scheduleReadout(){
+  if(_readoutPending) return;
+  _readoutPending=true;
+  setTimeout(()=>{ _readoutPending=false; updateReadouts(); }, 200);
+}
+map.on("moveend", scheduleReadout);
+map.on("sourcedata", e => { if(e.isSourceLoaded) scheduleReadout(); });
+map.on("idle", scheduleReadout);
+function updateReadouts(){
   try{
     const ly=[aggId(),ptId()].filter(l=>map.getLayer(l)&&
       map.getLayoutProperty(l,"visibility")!=="none");
@@ -513,18 +541,9 @@ map.on("idle",()=>{
         ? map.queryRenderedFeatures({layers:[aggId()]}).length : 0;
     document.getElementById("ncells").textContent=aggOnly.toLocaleString();
 
-    if(!S.days.length&&feats.length){
-      // Per-year tilesets key days as MMDD, the rolling window as YYYYMMDD.
-      const keys=Object.keys(feats[0].properties||{})
-        .filter(k=>/^count_\d{4}(\d{4})?$/.test(k));
-      if(keys.length){
-        S.days=keys.map(k=>k.slice(6)).sort();
-        S.d0=0; S.d1=S.days.length-1;
-        renderControls();
-      }
-    }
-  }catch(e){ console.warn("idle readout failed", e); }
-});
+
+  }catch(e){ console.warn("readout failed", e); }
+}
 
 map.on("click",e=>{
   const ly=[aggId(),ptId()].filter(l=>map.getLayer(l)&&
