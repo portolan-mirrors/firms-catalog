@@ -16,7 +16,13 @@ import argparse
 import json
 from pathlib import Path
 
-PMTILES = "../fire.pmtiles"
+# Absolute, not relative. The Portolan browser fetches a style as JSON and
+# hands MapLibre the object, so a relative source URL resolves against the
+# viewer's own origin rather than the style's location: the browser rendered
+# the legend and never requested the tiles. The generator writes this from the
+# published base, so it stays correct on republish.
+PUBLIC_BASE = ("https://data.source.coop/portolan-mirrors/firms-catalog/detections")
+PMTILES = f"{PUBLIC_BASE}/fire.pmtiles"
 
 COUNT = [[1, "#2c3d5a"], [5, "#3f6d8f"], [20, "#59a1a0"], [75, "#a8c268"],
          [250, "#f2b134"], [1000, "#e8722c"], [4000, "#d1382a"]]
@@ -63,8 +69,8 @@ def main() -> int:
 
     written = []
     for fname, title, field, stops in [
-        ("default.json", "Fire detection density", "count", COUNT),
-        ("avg-frp.json", "Average fire radiative power", "avg_frp", AVGFRP),
+        ("default.json", "Fire detections, last 7 days (density)", "count", COUNT),
+        ("avg-frp.json", "Fire radiative power, last 7 days (average)", "avg_frp", AVGFRP),
     ]:
         p = out / fname
         p.write_text(json.dumps(style(title, field, stops, z), indent=2) + "\n")

@@ -1,10 +1,10 @@
 {
   "version": 8,
-  "name": "Fire detection density",
+  "name": "Fire detections, last 7 days (density)",
   "sources": {
     "data": {
       "type": "vector",
-      "url": "pmtiles://../fire.pmtiles"
+      "url": "pmtiles://https://data.source.coop/portolan-mirrors/firms-catalog/detections/fire.pmtiles"
     }
   },
   "layers": [

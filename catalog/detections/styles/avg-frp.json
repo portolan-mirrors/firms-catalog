@@ -1,10 +1,10 @@
 {
   "version": 8,
-  "name": "Average fire radiative power",
+  "name": "Fire radiative power, last 7 days (average)",
   "sources": {
     "data": {
       "type": "vector",
-      "url": "pmtiles://../fire.pmtiles"
+      "url": "pmtiles://https://data.source.coop/portolan-mirrors/firms-catalog/detections/fire.pmtiles"
     }
   },
   "layers": [

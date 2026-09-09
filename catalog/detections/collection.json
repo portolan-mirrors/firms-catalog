@@ -23,7 +23,7 @@
     "FIRMS",
     "near real-time"
   ],
-  "updated": "2026-09-08T13:16:07Z",
+  "updated": "2026-09-09T10:55:38Z",
   "providers": [
     {
       "name": "NASA LANCE FIRMS",
@@ -181,8 +181,8 @@
         "style",
         "default"
       ],
-      "file:size": 1601,
-      "file:checksum": "12204d401b45a1871d4b9e15c3aff8c86b5f46408b4bc670e1d37e53fdcfc14deb9c"
+      "file:size": 1681,
+      "file:checksum": "12209d41aba12060ca9416fac41dd800c8717eead46eb31ac56c9edf84f2946e9992"
     },
     "style-avg-frp": {
       "href": "./styles/avg-frp.json",
@@ -191,8 +191,8 @@
       "roles": [
         "style"
       ],
-      "file:size": 1607,
-      "file:checksum": "12205faabd02b05fdb7383de3a1cfe69f6d7ed845824aba39bf2e92ae21f91181715"
+      "file:size": 1686,
+      "file:checksum": "12208f408eb77063b5a549a5c69174b810def0b210eeaeaf2554b1364b7de256d820"
     },
     "thumbnail": {
       "href": "./detections.thumb.jpg",
