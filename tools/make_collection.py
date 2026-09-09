@@ -53,8 +53,9 @@ def main() -> int:
     ap.add_argument("--out", required=True, help="collection.json path")
     ap.add_argument("--pmtiles", default="fire.pmtiles")
     ap.add_argument("--pmtiles-layers", default="aggregate,features")
-    ap.add_argument("--styles", default="default.json:Fire detection density,"
-                                        "avg-frp.json:Average fire radiative power")
+    # Filenames only. Each asset title is read from the style's own "name", so
+    # the name lives in one place instead of drifting between the two tools.
+    ap.add_argument("--styles", default="default.json,avg-frp.json")
     ap.add_argument("--thumbnail", default="detections.thumb.jpg")
     a = ap.parse_args()
 
@@ -92,8 +93,11 @@ def main() -> int:
 
     assets = {}
     styles = [x for x in a.styles.split(",") if x]
-    for i, spec in enumerate(styles):
-        fn, _, title = spec.partition(":")
+    for i, fn in enumerate(styles):
+        sp = Path(a.out).parent / "styles" / fn
+        title = fn
+        if sp.is_file():
+            title = json.loads(sp.read_text()).get("name", fn)
         roles = ["style", "default"] if i == 0 else ["style"]
         assets[f"style-{Path(fn).stem}"] = {
             "href": f"./styles/{fn}",

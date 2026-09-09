@@ -23,7 +23,7 @@
     "FIRMS",
     "near real-time"
   ],
-  "updated": "2026-09-09T10:55:38Z",
+  "updated": "2026-09-09T10:57:52Z",
   "providers": [
     {
       "name": "NASA LANCE FIRMS",
@@ -176,7 +176,7 @@
     "style-default": {
       "href": "./styles/default.json",
       "type": "application/vnd.mapbox.style+json",
-      "title": "Fire detection density",
+      "title": "Fire detections, last 7 days (density)",
       "roles": [
         "style",
         "default"
@@ -187,7 +187,7 @@
     "style-avg-frp": {
       "href": "./styles/avg-frp.json",
       "type": "application/vnd.mapbox.style+json",
-      "title": "Average fire radiative power",
+      "title": "Fire radiative power, last 7 days (average)",
       "roles": [
         "style"
       ],
