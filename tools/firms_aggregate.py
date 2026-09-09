@@ -39,6 +39,7 @@ DEFAULTS = {"a5": {"base": 10, "levels": "6"},
 BASE_RES = 8
 OVERVIEWS = "6,4"   # r2 (143 cells) is unreadable at full zoom-out; r4 (1,224) reads well
 METRICS = "sum:frp,avg:frp,max:frp"
+ZSTD_LEVEL = 22
 FEATURES_MIN_ZOOM = 10
 
 # breakdown column -> how many pivoted values to allow
@@ -133,7 +134,7 @@ def main() -> int:
     fixed = out / "cells_gp.parquet"
     run(["gpio", "convert", "geoparquet", str(combined), str(fixed),
          "--geoparquet-version", "2.0", "--compression", "zstd",
-         "--compression-level", "15"])
+         "--compression-level", str(ZSTD_LEVEL)])
     fixed.replace(combined)
 
     print("[overview] rolling up")

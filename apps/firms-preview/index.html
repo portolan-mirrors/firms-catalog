@@ -4,6 +4,7 @@
 <link href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet">
 <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
 <script src="https://unpkg.com/pmtiles@3.2.0/dist/pmtiles.js"></script>
+<script src="https://unpkg.com/protomaps-themes-base@4.5.0/dist/protomaps-themes-base.js"></script>
 <style>
  :root{--bg:#0d1117;--panel:#12171f;--line:#2b3440;--fg:#e6edf3;--dim:#8b949e;
        --acc:#f78166;--warn:#d29922}
@@ -134,6 +135,10 @@ maplibregl.addProtocol("pmtiles", new pmtiles.Protocol().tile);
 // works with no configuration; ?tiles=./fire.pmtiles points it at a local
 // build for development.
 const BASE = "https://data.source.coop/portolan-mirrors/firms-catalog/detections";
+// Protomaps' OpenStreetMap basemap, hosted on the same origin as the data, so
+// the demo pulls its background from Source Cooperative rather than a third
+// party raster service.
+const BASEMAP = "https://data.source.coop/protomaps/openstreetmap/tiles/v3.pmtiles";
 const qs = new URLSearchParams(location.search);
 // Two grid schemes over identical data, for comparison. H3 r6 holds 170k cells
 // here against A5 r10's 189k, so they are at comparable density.
@@ -197,11 +202,15 @@ function bandAt(z){
 }
 
 const map=new maplibregl.Map({container:"map",hash:true,
-  style:{version:8,sources:{base:{type:"raster",
-    tiles:["https://tile.openstreetmap.org/{z}/{x}/{y}.png"],tileSize:256,
-    attribution:"&copy; OpenStreetMap"}},
-   layers:[{id:"base",type:"raster",source:"base",
-     paint:{"raster-opacity":.34,"raster-saturation":-.92,"raster-brightness-max":.55}}]},
+  style:{
+    version:8,
+    glyphs:"https://protomaps.github.io/basemaps-assets/fonts/{fontstack}/{range}.pbf",
+    sprite:"https://protomaps.github.io/basemaps-assets/sprites/v4/dark",
+    sources:{protomaps:{type:"vector",url:"pmtiles://"+BASEMAP,
+      attribution:'<a href="https://protomaps.com">Protomaps</a> &copy; <a href="https://openstreetmap.org">OpenStreetMap</a>'}},
+    // The fire layers are added on load, so they sit above every basemap layer.
+    layers:protomaps_themes_base.layers("protomaps","dark",{lang:"en"}),
+  },
   center:[20,0],zoom:2,minZoom:-2,renderWorldCopies:true});
 window._map=map;
 

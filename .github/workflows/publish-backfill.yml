@@ -38,23 +38,56 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           YEARS_IN: ${{ inputs.years }}
-          RUN_ID: ${{ inputs.run_id }}
+          FIRMS_MAP_KEY: ${{ secrets.FIRMS_MAP_KEY }}
         run: |
           set -euo pipefail
-          if [ -n "$YEARS_IN" ]; then echo "years=$YEARS_IN" >> "$GITHUB_OUTPUT"; exit 0; fi
-          RID="$RUN_ID"
-          if [ -z "$RID" ]; then
-            RID=$(gh run list --workflow=backfill.yml -R "$GITHUB_REPOSITORY" \
-                   --limit 1 --json databaseId --jq '.[0].databaseId')
-          fi
-          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RID/artifacts?per_page=100" \
-            --jq '[.artifacts[].name]' > names.json
+          # Artifacts accumulate across backfill runs, and a year needs every
+          # sensor that FIRMS serves for it. Publishing a year whose slices are
+          # only partly banked would write a file that looks complete and
+          # silently omits a sensor, so only fully banked years are emitted.
+          curl -sf --retry 8 --retry-delay 15 --retry-all-errors --max-time 120 \
+            "https://firms.modaps.eosdis.nasa.gov/api/data_availability/csv/${FIRMS_MAP_KEY}/ALL" \
+            > availability.csv
+          gh api --paginate \
+            "repos/$GITHUB_REPOSITORY/actions/artifacts?per_page=100" \
+            --jq '[.artifacts[]|select(.expired==false and (.name|startswith("slice-")))
+                   |{name, id}]' > artifacts.json
           python3 - <<'EOF' >> "$GITHUB_OUTPUT"
-          import json,re
-          names=json.load(open("names.json"))
-          ys=sorted({int(m.group(1)) for n in names if (m:=re.search(r"-(\d{4})$", n))})
-          print("years=" + json.dumps(ys))
+          import csv, json, os
+          avail = {}
+          with open("availability.csv") as f:
+              for r in csv.DictReader(f):
+                  avail[r["data_id"]] = (r["min_date"], r["max_date"])
+          # Newest artifact wins if a slice was fetched more than once.
+          banked = {}
+          for a in json.load(open("artifacts.json")):
+              banked.setdefault(a["name"], a["id"])
+          expected = {}
+          for sl in json.load(open("tools/backfill_slices.json")):
+              rng = avail.get(sl["source"])
+              if not rng:
+                  continue
+              lo, hi = rng
+              y = sl["year"]
+              if max(f"{y}-01-01", lo) > min(f"{y}-12-31", hi):
+                  continue          # FIRMS serves nothing for this slice
+              expected.setdefault(y, []).append(f"slice-{sl['source']}-{y}")
+          want = os.environ.get("YEARS_IN", "").strip()
+          want = set(json.loads(want)) if want else None
+          out, skipped = [], []
+          for y, names in sorted(expected.items()):
+              if want is not None and y not in want:
+                  continue
+              have = [n for n in names if n in banked]
+              if len(have) != len(names):
+                  skipped.append(f"{y} ({len(have)}/{len(names)})")
+                  continue
+              out.append({"year": y, "ids": [banked[n] for n in have]})
+          print("matrix=" + json.dumps({"include": [
+              {"year": o["year"], "ids": ",".join(str(i) for i in o["ids"])} for o in out]}))
+          print("skipped=" + " ".join(skipped))
           EOF
+          echo "incomplete, not published: $(grep '^skipped=' "$GITHUB_OUTPUT" | cut -d= -f2-)"
 
   year:
     needs: plan
@@ -73,18 +106,21 @@ jobs:
       - run: |
           pip install --quiet duckdb boto3 \
             'git+https://github.com/geoparquet/geoparquet-io.git@main'
-      - uses: actions/download-artifact@v4
-        with:
-          pattern: slice-*-${{ matrix.year }}
-          path: ./dl
-          merge-multiple: true
-          run-id: ${{ inputs.run_id }}
-          github-token: ${{ github.token }}
-      - name: Unpack slices
+      - name: Download this year's slices
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          mkdir -p chunks
-          find ./dl -name '*.tar.gz' -print -exec tar -xzf {} -C chunks \;
-          find chunks -name '*.parquet' | wc -l
+          set -euo pipefail
+          mkdir -p dl chunks
+          # Slices for one year can live in different backfill runs, so fetch
+          # each artifact by id rather than pulling one run's whole set.
+          for id in $(echo "${{ matrix.ids }}" | tr ',' ' '); do
+            gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$id/zip" > "dl/$id.zip"
+            unzip -q -o "dl/$id.zip" -d "dl/$id"
+          done
+          find dl -name '*.tar.gz' -print -exec tar -xzf {} -C chunks \;
+          echo "chunk files: $(find chunks -name '*.parquet' | wc -l)"
+
       - name: Build year=${{ matrix.year }}
         run: |
           python3 tools/firms_build.py --chunks ./chunks \

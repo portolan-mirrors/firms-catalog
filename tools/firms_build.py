@@ -25,7 +25,11 @@ from pathlib import Path
 import duckdb
 
 ROW_GROUP = 100_000
-ZSTD_LEVEL = 15
+# 22 rather than 15: measured -5.0% on a 1.9M-row file (34.73 -> 33.01 MB) for
+# +0.9s of write time and no change in read speed. Row groups stay at 100k;
+# 200k saved another 1.7% but coarsens predicate pruning, which is the point of
+# sorting the rows in the first place.
+ZSTD_LEVEL = 22
 
 
 def connect(mem: str, tmp: Path) -> duckdb.DuckDBPyConnection:
