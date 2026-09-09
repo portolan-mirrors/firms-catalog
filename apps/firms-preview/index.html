@@ -250,7 +250,17 @@ function facetCount(){
   return [!allDays()||null,S.sensor,S.dn!=="all"?S.dn:null].filter(Boolean).length;
 }
 
+// Sliders fire an input event per pixel of drag. Each apply() rebuilds a paint
+// expression and resets a layer filter, which makes MapLibre re-evaluate every
+// feature in every loaded tile, and rebuilds the panel DOM. Coalesce them: at
+// most one update per animation frame.
+let _pending = false;
 function apply(){
+  if(_pending) return;
+  _pending = true;
+  requestAnimationFrame(() => { _pending = false; applyNow(); });
+}
+function applyNow(){
   if(!map.getLayer(aggId()))return;
   const cexpr=activeCountExpr(), ramp=RAMPS[S.metric];
   const colorExpr = S.metric==="count"
@@ -405,7 +415,7 @@ function renderControls(){
     const pct=i=>n>1?(i/(n-1))*100:0;
     const f=document.getElementById("dfill");
     f.style.left=pct(S.d0)+"%"; f.style.right=(100-pct(S.d1))+"%";
-    const fmt=d=>`${d.slice(4,6)}/${d.slice(6,8)}`;
+    const fmt=d=>d.length>=8?`${d.slice(4,6)}/${d.slice(6,8)}`:`${d.slice(0,2)}/${d.slice(2,4)}`;
     document.getElementById("dayrange").textContent=
       allDays()?"all":(S.d0===S.d1?fmt(S.days[S.d0]):`${fmt(S.days[S.d0])} – ${fmt(S.days[S.d1])}`);
     document.getElementById("dlo").textContent=fmt(S.days[0]);
@@ -455,23 +465,36 @@ map.on("move",()=>{
   if(nowPts!==lastPts){lastPts=nowPts;apply();}   // ramp changed with the layer
 });
 map.on("idle",()=>{
-  const ly=[aggId(),ptId()].filter(l=>map.getLayer(l)&&
-    map.getLayoutProperty(l,"visibility")!=="none");
-  document.getElementById("nf").textContent=ly.length
-    ? map.queryRenderedFeatures({layers:ly}).length.toLocaleString() : "0";
-  const cells=map.getLayer(aggId())
-    ? map.queryRenderedFeatures({layers:[aggId()]}).length : 0;
-  document.getElementById("ncells").textContent=cells.toLocaleString();
-  // discover day columns once
-  if(!S.days.length){
-    const f=map.querySourceFeatures("src-"+S.scheme,{sourceLayer:AGG_SRC_LAYER});
-    if(f.length){
-      S.days=Object.keys(f[0].properties).filter(k=>/^count_\d{8}$/.test(k))
-        .map(k=>k.slice(6)).sort();
-      if(S.days.length){ S.d0=0; S.d1=S.days.length-1; renderControls(); apply(); }
+  try{
+    const ly=[aggId(),ptId()].filter(l=>map.getLayer(l)&&
+      map.getLayoutProperty(l,"visibility")!=="none");
+    if(!ly.length){
+      document.getElementById("nf").textContent="0";
+      document.getElementById("ncells").textContent="0";
+      return;
     }
-  }
+    // One query serves both readouts. querySourceFeatures returns nothing for
+    // these pyramids, so day discovery reads rendered features too.
+    const feats=map.queryRenderedFeatures({layers:ly});
+    document.getElementById("nf").textContent=feats.length.toLocaleString();
+    const aggOnly=map.getLayer(aggId())&&
+      map.getLayoutProperty(aggId(),"visibility")!=="none"
+        ? map.queryRenderedFeatures({layers:[aggId()]}).length : 0;
+    document.getElementById("ncells").textContent=aggOnly.toLocaleString();
+
+    if(!S.days.length&&feats.length){
+      // Per-year tilesets key days as MMDD, the rolling window as YYYYMMDD.
+      const keys=Object.keys(feats[0].properties||{})
+        .filter(k=>/^count_\d{4}(\d{4})?$/.test(k));
+      if(keys.length){
+        S.days=keys.map(k=>k.slice(6)).sort();
+        S.d0=0; S.d1=S.days.length-1;
+        renderControls();
+      }
+    }
+  }catch(e){ console.warn("idle readout failed", e); }
 });
+
 map.on("click",e=>{
   const ly=[aggId(),ptId()].filter(l=>map.getLayer(l)&&
     map.getLayoutProperty(l,"visibility")!=="none");
