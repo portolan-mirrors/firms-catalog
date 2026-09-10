@@ -236,31 +236,49 @@ RETRY_STATUS = {500, 502, 503, 504, 520, 522, 524}
 UPLOAD_ATTEMPTS = 6
 
 
+def client_config():
+    """botocore retry and timeout settings, or None when botocore is absent.
+
+    Returning None rather than raising keeps the dry-run and test paths, which
+    never touch AWS, working without boto3 installed.
+    """
+    try:
+        from botocore.config import Config
+    except ImportError:
+        return None
+    return Config(retries={"max_attempts": 10, "mode": "standard"},
+                  read_timeout=180, connect_timeout=30)
+
+
+def transfer_config():
+    """Multipart settings, or None when boto3 is absent.
+
+    Larger parts mean fewer requests and so fewer chances to hit a timeout: a
+    460 MB file is 58 parts at the 8 MB default and 8 parts at 64 MB.
+    """
+    try:
+        from boto3.s3.transfer import TransferConfig
+    except ImportError:
+        return None
+    return TransferConfig(multipart_threshold=64 * 1024 * 1024,
+                          multipart_chunksize=64 * 1024 * 1024,
+                          max_concurrency=4, use_threads=True)
+
+
 def s3_client(session, config: dict[str, str]):
     """An S3 client honoring ``endpoint_url`` when the config sets one.
 
     Source Cooperative serves S3 at its own host, so a client built without
     the endpoint silently talks to AWS instead.
     """
-    from botocore.config import Config
-
-    # Larger parts mean fewer requests and so fewer chances to hit a timeout:
-    # a 460 MB file is 58 parts at the 8 MB default and 8 parts at 64 MB.
-    cfg = Config(retries={"max_attempts": 10, "mode": "standard"},
-                 read_timeout=180, connect_timeout=30)
+    kwargs = {}
     endpoint = config.get("endpoint_url") or None
     if endpoint:
-        return session.client("s3", endpoint_url=endpoint, config=cfg)
-    return session.client("s3", config=cfg)
-
-
-def transfer_config():
-    """Multipart settings: fewer, larger parts."""
-    from boto3.s3.transfer import TransferConfig
-
-    return TransferConfig(multipart_threshold=64 * 1024 * 1024,
-                          multipart_chunksize=64 * 1024 * 1024,
-                          max_concurrency=4, use_threads=True)
+        kwargs["endpoint_url"] = endpoint
+    cfg = client_config()
+    if cfg is not None:
+        kwargs["config"] = cfg
+    return session.client("s3", **kwargs)
 
 
 def status_of(exc) -> int | None:
@@ -318,15 +336,13 @@ def upload_all(session, bucket: str, uploads: list[Upload], config: dict[str, st
         # replaces rather than appends.
         import time
 
+        extra = {"ExtraArgs": {"ContentType": upload.content_type}}
+        if xfer is not None:
+            extra["Config"] = xfer
         for attempt in range(1, UPLOAD_ATTEMPTS + 1):
             try:
                 client().upload_file(
-                    str(upload.local),
-                    bucket,
-                    upload.key,
-                    ExtraArgs={"ContentType": upload.content_type},
-                    Config=xfer,
-                )
+                    str(upload.local), bucket, upload.key, **extra)
                 return
             except Exception as exc:  # noqa: BLE001 - retry decision below
                 code = status_of(exc)

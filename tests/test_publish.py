@@ -165,7 +165,9 @@ class FakeClient:
         self.calls = calls
         self.fail_key = fail_key
 
-    def upload_file(self, local, bucket, key, ExtraArgs):
+    # Mirrors boto3's signature: the real client takes Config, and s3_client
+    # passes botocore settings, so a fake that refuses them hides real breakage.
+    def upload_file(self, local, bucket, key, ExtraArgs, Config=None):
         if key == self.fail_key:
             raise RuntimeError("boom")
         self.calls.append((local, bucket, key, ExtraArgs["ContentType"]))
@@ -177,7 +179,7 @@ class FakeSession:
         self.clients = 0
         self.fail_key = fail_key
 
-    def client(self, name):
+    def client(self, name, **kwargs):
         self.clients += 1
         return FakeClient(self.calls, self.fail_key)
 
@@ -252,6 +254,80 @@ else:
 
         empty = aws_session({"profile": "", "region": ""})
         check(empty.profile_name == "default", "an empty profile is no profile")
+
+# Reporting happens once, at the very end of the file, so every check below
+# is covered too.
+
+
+# --- gateway retry -----------------------------------------------------------
+# Source Cooperative's CDN answers 524 on a slow UploadPart, which botocore's
+# standard retry mode does not treat as retryable. 2022 and 2023 both failed
+# publishing that way after their data had already been rebuilt.
+import time  # noqa: E402
+
+from publish import RETRY_STATUS, UPLOAD_ATTEMPTS, status_of  # noqa: E402
+
+# The backoff is real seconds in production and pointless here.
+time.sleep = lambda *_a, **_k: None
+
+
+class Boom(Exception):
+    def __init__(self, code):
+        self.response = {"ResponseMetadata": {"HTTPStatusCode": code}}
+
+
+class FlakyClient:
+    """Fails with `code` for the first `n` attempts, then succeeds."""
+
+    def __init__(self, code, n, log):
+        self.code, self.left, self.log = code, n, log
+
+    def upload_file(self, local, bucket, key, ExtraArgs, Config=None):
+        if self.left > 0:
+            self.left -= 1
+            raise Boom(self.code)
+        self.log.append(key)
+
+
+class FlakySession:
+    def __init__(self, code, n):
+        self.log: list = []
+        self.client_obj = FlakyClient(code, n, self.log)
+
+    def client(self, name, **kwargs):
+        return self.client_obj
+
+
+check(status_of(Boom(524)) == 524, "status_of reads the HTTP status")
+check(status_of(RuntimeError("x")) is None, "status_of tolerates a plain error")
+check(524 in RETRY_STATUS, "524 is retryable")
+check(403 not in RETRY_STATUS, "403 is not retryable")
+
+with tempfile.TemporaryDirectory() as tmp:
+    root = Path(tmp)
+    one = [Upload(write(root / "r.json"), "p/r.json", "application/json")]
+
+    # Two 524s then success: the file must land, not be reported failed.
+    sess = FlakySession(524, 2)
+    out, err = io.StringIO(), io.StringIO()
+    with redirect_stdout(out), redirect_stderr(err):
+        failed = upload_all(sess, "a-bucket", one)
+    check(failed == [], "a file that 524s twice still uploads")
+    check(sess.log == ["p/r.json"], "the retried file is uploaded exactly once")
+
+    # 403 is a real refusal and must not be retried into a long backoff.
+    sess = FlakySession(403, 1)
+    out, err = io.StringIO(), io.StringIO()
+    with redirect_stdout(out), redirect_stderr(err):
+        failed = upload_all(sess, "a-bucket", one)
+    check(failed == ["p/r.json"], "403 fails immediately instead of retrying")
+
+    # A permanently broken gateway must give up rather than hang forever.
+    sess = FlakySession(524, UPLOAD_ATTEMPTS + 5)
+    out, err = io.StringIO(), io.StringIO()
+    with redirect_stdout(out), redirect_stderr(err):
+        failed = upload_all(sess, "a-bucket", one)
+    check(failed == ["p/r.json"], "a persistent 524 eventually gives up")
 
 if errors:
     print("\n".join(f"error  {e}" for e in errors))
