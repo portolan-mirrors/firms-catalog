@@ -34,7 +34,13 @@ import duckdb
 SCHEME = "a5"
 # H3 r6 holds 170k cells for this data against A5 r10's 189k, and H3 r3 holds
 # 6.7k against A5 r6's 9.2k, so these pairings compare like with like.
-DEFAULTS = {"a5": {"base": 10, "levels": "6"},
+# Two overview levels, not one. A single r6 overview puts 16,102 cells on the
+# z0 tile, and with daily buckets that is 5.2 MB before anything renders --
+# the price of giving every band the full time axis. r4 cuts the cell count by
+# roughly an order of magnitude at the zooms where nobody can resolve a cell
+# anyway, without touching the time columns, so the timeline stays daily at
+# every map zoom.
+DEFAULTS = {"a5": {"base": 10, "levels": "6,4"},
             "h3": {"base": 6, "levels": "3"}}
 BASE_RES = 8
 OVERVIEWS = "6,4"   # r2 (143 cells) is unreadable at full zoom-out; r4 (1,224) reads well
@@ -43,7 +49,9 @@ ZSTD_LEVEL = 22
 FEATURES_MIN_ZOOM = 10
 
 # breakdown column -> how many pivoted values to allow
-DIMENSIONS = {"day": 40, "sensor": 8, "daynight": 4}
+# A year needs 366 day columns. The old cap of 40 was sized for the rolling
+# window and would have truncated a year to its first 40 days without saying so.
+DIMENSIONS = {"day": 366, "sensor": 8, "daynight": 4}
 
 
 def run(cmd: list[str], quiet: bool = True) -> None:
@@ -64,6 +72,9 @@ def main() -> int:
     ap.add_argument("--resolution", type=int)
     ap.add_argument("--levels")
     ap.add_argument("--features-min-zoom", type=int, default=FEATURES_MIN_ZOOM)
+    ap.add_argument("--year", type=int,
+                    help="build one calendar year: reads only that partition "
+                         "and names the archive fire-<year>.pmtiles")
     a = ap.parse_args()
 
     d = DEFAULTS[a.scheme]
@@ -73,8 +84,9 @@ def main() -> int:
         a.levels = d["levels"]
 
     data, out = Path(a.data), Path(a.out)
-    if not sorted(data.glob("year=*/*.parquet")):
-        raise SystemExit(f"no year partitions under {data}")
+    part = f"year={a.year}" if a.year else "year=*"
+    if not sorted(data.glob(f"{part}/*.parquet")):
+        raise SystemExit(f"no {part} partition under {data}")
     out.mkdir(parents=True, exist_ok=True)
 
     con = duckdb.connect()
@@ -90,7 +102,7 @@ def main() -> int:
                      CAST(month(acq_date) AS UTINYINT) AS month,
                      strftime(acq_date, '%Y%m%d') AS day,
                      geometry
-              FROM read_parquet('{data}/year=*/*.parquet',
+              FROM read_parquet('{data}/{part}/*.parquet',
                                 hive_partitioning=true))
         TO '{src}' (FORMAT PARQUET, COMPRESSION zstd)
     """)
@@ -145,7 +157,8 @@ def main() -> int:
         tiles = Path(a.tiles); tiles.mkdir(parents=True, exist_ok=True)
         # Named for the period it covers, like every other archive. The
         # rolling window was the only one whose name did not say.
-        archive = tiles / "fire-latest.pmtiles"
+        name = f"fire-{a.year}.pmtiles" if a.year else "fire-latest.pmtiles"
+        archive = tiles / name
         print(f"[pyramid] aggregate bands + raw points from z{a.features_min_zoom}")
         run(["gpio", "pmtiles", "pyramid", str(combined), str(archive),
              "--levels", a.levels,
@@ -154,6 +167,8 @@ def main() -> int:
              "--features-min-zoom", str(a.features_min_zoom), "-f"])
         mb = archive.stat().st_size / 1e6
         print(f"  {archive} ({mb:,.1f} MB)")
+        run(["python3", str(Path(__file__).with_name("make_timeline.py")),
+             str(archive)], quiet=False)
     return 0
 
 
