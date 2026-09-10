@@ -4,47 +4,47 @@
   "stac_extensions": [
     "https://stac-extensions.github.io/table/v1.2.0/schema.json"
   ],
-  "id": "2021",
+  "id": "2019",
   "collection": "detections",
   "bbox": [
-    -179.9665,
-    -88.479,
-    179.995,
-    82.5675
+    -179.9753,
+    -88.9841,
+    179.9871,
+    82.2319
   ],
   "geometry": {
     "type": "Polygon",
     "coordinates": [
       [
         [
-          -179.96645,
-          -88.479
+          -179.97534,
+          -88.9841
         ],
         [
-          179.99498,
-          -88.479
+          179.98706,
+          -88.9841
         ],
         [
-          179.99498,
-          82.56747
+          179.98706,
+          82.23188
         ],
         [
-          -179.96645,
-          82.56747
+          -179.97534,
+          82.23188
         ],
         [
-          -179.96645,
-          -88.479
+          -179.97534,
+          -88.9841
         ]
       ]
     ]
   },
   "properties": {
-    "title": "Active fire detections, 2021",
+    "title": "Active fire detections, 2019",
     "datetime": null,
-    "start_datetime": "2021-01-01T00:00:00Z",
-    "end_datetime": "2021-12-31T23:59:00Z",
-    "table:row_count": 44911159,
+    "start_datetime": "2019-01-01T00:00:00Z",
+    "end_datetime": "2019-12-31T23:59:00Z",
+    "table:row_count": 46546650,
     "firms:sensors": [
       "MODIS",
       "VIIRS_NOAA20",
@@ -55,11 +55,11 @@
     "data": {
       "href": "./detections.parquet",
       "type": "application/vnd.apache.parquet",
-      "title": "2021 detections, GeoParquet 2.0",
+      "title": "2019 detections, GeoParquet 2.0",
       "roles": [
         "data"
       ],
-      "file:size": 782342515
+      "file:size": 810949611
     }
   },
   "links": [
@@ -80,7 +80,7 @@
     },
     {
       "rel": "self",
-      "href": "https://data.source.coop/portolan-mirrors/firms-catalog/detections/year=2021/2021.json",
+      "href": "https://data.source.coop/portolan-mirrors/firms-catalog/detections/year=2019/2019.json",
       "type": "application/geo+json"
     }
   ]

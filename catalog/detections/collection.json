@@ -375,6 +375,18 @@
     },
     {
       "rel": "item",
+      "href": "./year=2018/2018.json",
+      "type": "application/geo+json",
+      "title": "Active fire detections, 2018"
+    },
+    {
+      "rel": "item",
+      "href": "./year=2019/2019.json",
+      "type": "application/geo+json",
+      "title": "Active fire detections, 2019"
+    },
+    {
+      "rel": "item",
       "href": "./year=2020/2020.json",
       "type": "application/geo+json",
       "title": "Active fire detections, 2020"
@@ -384,6 +396,24 @@
       "href": "./year=2021/2021.json",
       "type": "application/geo+json",
       "title": "Active fire detections, 2021"
+    },
+    {
+      "rel": "item",
+      "href": "./year=2022/2022.json",
+      "type": "application/geo+json",
+      "title": "Active fire detections, 2022"
+    },
+    {
+      "rel": "item",
+      "href": "./year=2023/2023.json",
+      "type": "application/geo+json",
+      "title": "Active fire detections, 2023"
+    },
+    {
+      "rel": "item",
+      "href": "./year=2024/2024.json",
+      "type": "application/geo+json",
+      "title": "Active fire detections, 2024"
     }
   ]
 }

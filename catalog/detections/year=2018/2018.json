@@ -4,47 +4,47 @@
   "stac_extensions": [
     "https://stac-extensions.github.io/table/v1.2.0/schema.json"
   ],
-  "id": "2021",
+  "id": "2018",
   "collection": "detections",
   "bbox": [
-    -179.9665,
-    -88.479,
-    179.995,
-    82.5675
+    -179.995,
+    -89.6907,
+    179.9757,
+    81.9226
   ],
   "geometry": {
     "type": "Polygon",
     "coordinates": [
       [
         [
-          -179.96645,
-          -88.479
+          -179.99501,
+          -89.69073
         ],
         [
-          179.99498,
-          -88.479
+          179.97566,
+          -89.69073
         ],
         [
-          179.99498,
-          82.56747
+          179.97566,
+          81.92259
         ],
         [
-          -179.96645,
-          82.56747
+          -179.99501,
+          81.92259
         ],
         [
-          -179.96645,
-          -88.479
+          -179.99501,
+          -89.69073
         ]
       ]
     ]
   },
   "properties": {
-    "title": "Active fire detections, 2021",
+    "title": "Active fire detections, 2018",
     "datetime": null,
-    "start_datetime": "2021-01-01T00:00:00Z",
-    "end_datetime": "2021-12-31T23:59:00Z",
-    "table:row_count": 44911159,
+    "start_datetime": "2018-01-01T00:15:00Z",
+    "end_datetime": "2018-12-31T23:59:00Z",
+    "table:row_count": 37980401,
     "firms:sensors": [
       "MODIS",
       "VIIRS_NOAA20",
@@ -55,11 +55,11 @@
     "data": {
       "href": "./detections.parquet",
       "type": "application/vnd.apache.parquet",
-      "title": "2021 detections, GeoParquet 2.0",
+      "title": "2018 detections, GeoParquet 2.0",
       "roles": [
         "data"
       ],
-      "file:size": 782342515
+      "file:size": 664605696
     }
   },
   "links": [
@@ -80,7 +80,7 @@
     },
     {
       "rel": "self",
-      "href": "https://data.source.coop/portolan-mirrors/firms-catalog/detections/year=2021/2021.json",
+      "href": "https://data.source.coop/portolan-mirrors/firms-catalog/detections/year=2018/2018.json",
       "type": "application/geo+json"
     }
   ]

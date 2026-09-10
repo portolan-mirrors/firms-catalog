@@ -42,15 +42,13 @@
   "properties": {
     "title": "Active fire detections, 2020",
     "datetime": null,
-    "start_datetime": "2020-01-01T00:30:00Z",
+    "start_datetime": "2020-01-01T00:00:00Z",
     "end_datetime": "2020-12-31T23:58:00Z",
-    "table:row_count": 25184030,
+    "table:row_count": 45667027,
     "firms:sensors": [
       "MODIS",
+      "VIIRS_NOAA20",
       "VIIRS_SNPP"
-    ],
-    "firms:sensors_pending": [
-      "VIIRS_NOAA20"
     ]
   },
   "assets": {
@@ -61,7 +59,7 @@
       "roles": [
         "data"
       ],
-      "file:size": 462717536
+      "file:size": 797505286
     },
     "pmtiles": {
       "href": "./fire-2020.pmtiles",

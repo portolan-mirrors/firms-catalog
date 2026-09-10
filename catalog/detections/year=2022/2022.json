@@ -4,47 +4,47 @@
   "stac_extensions": [
     "https://stac-extensions.github.io/table/v1.2.0/schema.json"
   ],
-  "id": "2021",
+  "id": "2022",
   "collection": "detections",
   "bbox": [
-    -179.9665,
-    -88.479,
-    179.995,
-    82.5675
+    -179.853,
+    -88.4401,
+    179.8773,
+    87.4687
   ],
   "geometry": {
     "type": "Polygon",
     "coordinates": [
       [
         [
-          -179.96645,
-          -88.479
+          -179.853,
+          -88.44008
         ],
         [
-          179.99498,
-          -88.479
+          179.8773,
+          -88.44008
         ],
         [
-          179.99498,
-          82.56747
+          179.8773,
+          87.4687
         ],
         [
-          -179.96645,
-          82.56747
+          -179.853,
+          87.4687
         ],
         [
-          -179.96645,
-          -88.479
+          -179.853,
+          -88.44008
         ]
       ]
     ]
   },
   "properties": {
-    "title": "Active fire detections, 2021",
+    "title": "Active fire detections, 2022",
     "datetime": null,
-    "start_datetime": "2021-01-01T00:00:00Z",
-    "end_datetime": "2021-12-31T23:59:00Z",
-    "table:row_count": 44911159,
+    "start_datetime": "2022-01-01T00:01:00Z",
+    "end_datetime": "2022-12-31T23:58:00Z",
+    "table:row_count": 39191885,
     "firms:sensors": [
       "MODIS",
       "VIIRS_NOAA20",
@@ -55,11 +55,11 @@
     "data": {
       "href": "./detections.parquet",
       "type": "application/vnd.apache.parquet",
-      "title": "2021 detections, GeoParquet 2.0",
+      "title": "2022 detections, GeoParquet 2.0",
       "roles": [
         "data"
       ],
-      "file:size": 782342515
+      "file:size": 685630403
     }
   },
   "links": [
@@ -80,7 +80,7 @@
     },
     {
       "rel": "self",
-      "href": "https://data.source.coop/portolan-mirrors/firms-catalog/detections/year=2021/2021.json",
+      "href": "https://data.source.coop/portolan-mirrors/firms-catalog/detections/year=2022/2022.json",
       "type": "application/geo+json"
     }
   ]
