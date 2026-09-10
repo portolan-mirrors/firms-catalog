@@ -78,11 +78,12 @@ integer counts over a converged cell set.
 An earlier guess of ~79 MB was wrong, having scaled naively from per-year file
 size. The measurement removed the reason for the fallback design.
 
-**Built, the numbers held.** 26 published years joined to 21,828 cells across
-305 columns for 6.3 MB of Parquet -- the cell union landing within a few
-percent of the ~20k the convergence curve predicted from seven samples.
+**Built, the numbers held.** All 27 published years joined to 22,208 cells
+across 317 columns for 6.6 MB of Parquet -- the cell union landing within a few
+percent of the ~20k the convergence curve predicted from seven samples, and
+growing by only 380 cells when the last two years were added.
 
-The tiled archive is 21.5 MB, not the ~8 MB implied above: that figure was the
+The tiled archive is 22.6 MB, not the ~8 MB implied above: that figure was the
 Parquet projection, and PMTiles costs about 3.4x more because cells repeat at
 every zoom of a band and each tile carries its own key dictionary. Still small
 enough that the conclusion is unchanged, but the projection to quote for a

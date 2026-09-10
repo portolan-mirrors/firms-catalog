@@ -181,8 +181,8 @@
         "style",
         "default"
       ],
-      "file:size": 1476,
-      "file:checksum": "1220d1dbcedff88c275698c899c50e77bd286f83052fa950c71483e2a9e91717767b"
+      "file:size": 1475,
+      "file:checksum": "122012724a2ef1faea36e1c95b0993ce8c1f78575c8676f3c8f0d642b367b5c4f414"
     },
     "style-avg-frp": {
       "href": "./styles/avg-frp.json",
@@ -192,7 +192,7 @@
         "style"
       ],
       "file:size": 1444,
-      "file:checksum": "12208f312f70203fede145de541c74c6b7c48bfe4bfe30f236b649fc6ddfd9e23f93"
+      "file:checksum": "12202c6ad19e8562c5f4d9b569e12ecebd898f255e1ff70b3cea4e7fc3d62d1bf815"
     },
     "pmtiles": {
       "href": "./fire.pmtiles",
