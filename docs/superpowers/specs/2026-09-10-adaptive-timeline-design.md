@@ -187,6 +187,28 @@ Bar height encodes the active metric — count by default, switchable to summed
 or mean FRP — using the same shipped quantile breaks the map uses, so the
 timeline and the map agree about what "hot" means.
 
+Height and colour must not read the same number, though. A pixel column at a
+wide span aggregates dozens of buckets, and its *total* lands in the top
+quantile class every time, which would paint the whole axis red and say
+nothing. Height is therefore the column total, so area is conserved and a busy
+month looks busy; colour is the per-bucket mean, which is stable as the span
+changes. Zooming then alters the shape of the chart without recolouring it.
+
+**Selection versus domain.** "The selection is clamped to the domain" applies
+to moving and resizing it — you cannot drag a handle to a pixel that is not
+there. It must NOT be re-applied when the domain itself changes. Re-clamping on
+zoom would make the selection always fill the view, which destroys both
+drag-to-pan and the ability to zoom out for context around a fixed window. A
+selection that falls off-screen stays where it is and the map keeps filtering
+by it; the track marks which edge it went off.
+
+**Bucket count versus calendar span.** `firms:timeline.buckets` is the number
+of bucket columns actually present, which for a sparse archive is fewer than
+the number of periods between `min` and `max`. The axis is drawn from the
+calendar span so time reads linearly, with absent buckets simply empty. A
+viewer that sizes its axis by `buckets` will compress time wherever data is
+missing, so it must not.
+
 ### Interaction
 
 - wheel and ctrl+wheel zoom the domain about the cursor; two-finger pinch does
