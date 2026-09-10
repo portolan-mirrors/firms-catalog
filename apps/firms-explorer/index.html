@@ -29,6 +29,16 @@
  .note{font-size:10px;color:var(--warn);padding:0 12px 8px;display:none}
  #track{display:block;width:100%;height:104px;outline:none}
  #track:focus-visible{box-shadow:inset 0 0 0 1px var(--acc)}
+  .dt {
+    background: var(--inset, #0b0f15); color: var(--fg, #e6edf3);
+    border: 1px solid var(--line, #2b3440); border-radius: 4px;
+    font: inherit; font-variant-numeric: tabular-nums;
+    padding: 2px 4px; min-width: 8.5em;
+  }
+  .dt:focus { outline: none; border-color: var(--acc, #f78166); }
+  /* The native indicator is near-invisible on a dark ground. */
+  .dt::-webkit-calendar-picker-indicator { filter: invert(.75); cursor: pointer; }
+  .arrow { color: var(--dim, #8b949e); margin: 0 .2em; }
 </style></head><body>
 
 <div class="stage"><p>The map goes here. This page exists to drive the timeline
@@ -57,7 +67,11 @@ generated, so read the shape, not the numbers.</p></div>
       <button id="reset">Reset</button>
     </div>
     <span class="spacer"></span>
-    <span class="kv">selection <b id="sel">–</b></span>
+    <span class="kv">selection
+      <input id="selfrom" class="dt" aria-label="Selection start">
+      <span class="arrow">→</span>
+      <input id="selto" class="dt" aria-label="Selection end">
+    </span>
     <span class="kv">view <b id="view">–</b></span>
     <span class="kv">buckets <b id="nb">–</b></span>
   </div>
@@ -67,7 +81,8 @@ generated, so read the shape, not the numbers.</p></div>
 </div>
 
 <script type="module">
-import {Timeline, makeAxis, indexKey, keyIndex} from "./timeline.js";
+import {Timeline, makeAxis, indexKey, keyIndex,
+        formatKey, keyToISO, isoToKey} from "./timeline.js";
 
 // Fixture archives, shaped exactly like the `firms:timeline` object each real
 // archive declares. Three of them, because the component must not assume a
@@ -135,6 +150,7 @@ function mount(name) {
 
   tl.setSource(arc.meta, values());
   tl.metricLabel = metricLabel();
+  syncInputs();
 
   // The declaration and the calendar span disagree only when the archive is
   // sparse. Say so rather than drawing a shorter axis than the metadata claims.
@@ -169,10 +185,49 @@ function values() {
   return out;
 }
 
+// Editing is suppressed while the drag that caused the change is still live,
+// because writing to an <input> the user is typing in would fight them for the
+// caret.
+let editing = null;
+
 function report(e) {
-  el("sel").textContent = e.keys ? `${e.keys.from} → ${e.keys.to}` : "–";
+  const a = el("selfrom"), b = el("selto");
+  if (e.keys && state) {
+    const u = state.axis.unit;
+    if (editing !== a) a.value = keyToISO(e.keys.from, u);
+    if (editing !== b) b.value = keyToISO(e.keys.to, u);
+    a.title = formatKey(e.keys.from, u);
+    b.title = formatKey(e.keys.to, u);
+  }
   const d = tl.domainKeys();
-  el("view").textContent = d ? `${d.from} → ${d.to}` : "–";
+  el("view").textContent = d
+    ? `${formatKey(d.from, state.axis.unit)} → ${formatKey(d.to, state.axis.unit)}`
+    : "–";
+}
+
+// month vs date decides which native picker appears, so it follows the axis.
+function syncInputs() {
+  const u = state.axis.unit;
+  for (const id of ["selfrom", "selto"]) {
+    const i = el(id);
+    i.type = u === "month" ? "month" : "date";
+    i.min = keyToISO(state.axis.min, u);
+    i.max = keyToISO(state.axis.max, u);
+  }
+}
+
+for (const id of ["selfrom", "selto"]) {
+  const i = el(id);
+  i.addEventListener("focus", () => { editing = i; });
+  i.addEventListener("blur", () => { editing = null; report({keys: tl.selectionKeys()}); });
+  i.addEventListener("change", () => {
+    const u = state.axis.unit;
+    const from = isoToKey(el("selfrom").value, u);
+    const to = isoToKey(el("selto").value, u);
+    // A half-typed date is not an error; it is a date the user has not
+    // finished. Wait rather than snapping the selection somewhere arbitrary.
+    if (from && to) tl.setSelectionKeys(from, to);
+  });
 }
 
 el("archive").onclick = e => {

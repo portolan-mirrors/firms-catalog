@@ -137,6 +137,40 @@ export function makeAxis(meta) {
   };
 }
 
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
+                "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+/** A bucket key as a person reads it: "Nov 2000", "5 Jul 2020". */
+export function formatKey(key, unit) {
+  if (key == null) return "";
+  const k = String(key);
+  if (unit === "month")
+    return `${MONTHS[+k.slice(4, 6) - 1]} ${k.slice(0, 4)}`;
+  return `${+k.slice(6, 8)} ${MONTHS[+k.slice(4, 6) - 1]} ${k.slice(0, 4)}`;
+}
+
+/**
+ * A bucket key as an <input type="month"|"date"> wants it.
+ *
+ * Native inputs are used rather than a hand-built picker because they carry a
+ * calendar widget, keyboard entry, locale-aware display and validation that
+ * would otherwise all have to be written and none of which is the point here.
+ */
+export function keyToISO(key, unit) {
+  const k = String(key);
+  return unit === "month"
+    ? `${k.slice(0, 4)}-${k.slice(4, 6)}`
+    : `${k.slice(0, 4)}-${k.slice(4, 6)}-${k.slice(6, 8)}`;
+}
+
+/** The inverse. Returns null when the value is not a complete date. */
+export function isoToKey(iso, unit) {
+  if (!iso) return null;
+  const digits = String(iso).replace(/-/g, "");
+  const want = unit === "month" ? 6 : 8;
+  return digits.length === want && /^\d+$/.test(digits) ? digits : null;
+}
+
 // --------------------------------------------------------------------- domain
 
 // Two buckets is the floor. Zooming to a single bucket leaves nothing to pan
@@ -319,6 +353,10 @@ export function quantize(width, count) {
 }
 
 // ---------------------------------------------------------------------- ticks
+
+// Drawn width of a selection handle. The hit tolerance is separate and wider,
+// because a 6px target is comfortable to see and uncomfortable to grab.
+const HANDLE_W = 6;
 
 // A label needs this much room before the next one, or they collide.
 const MIN_LABEL_PX = 54;
@@ -540,6 +578,22 @@ export class Timeline {
     return {from: this.axis.keyAt(i0), to: this.axis.keyAt(i1)};
   }
 
+  /**
+   * Set the selection from bucket keys, for the date inputs.
+   *
+   * Reversed input is swapped rather than rejected: typing the later date
+   * first is an ordinary way to fill two fields, and refusing it would leave
+   * the control feeling broken mid-edit.
+   */
+  setSelectionKeys(from, to) {
+    if (!this.axis) return;
+    let a = this.axis.indexOf(from), b = this.axis.indexOf(to);
+    if (a > b) [a, b] = [b, a];
+    this.selection = clampSelection({from: a, to: b}, this.bounds());
+    this._emit();
+    this.draw();
+  }
+
   setDomainKeys(from, to) {
     if (!this.axis) return;
     this.domain = clampDomain(
@@ -720,19 +774,30 @@ export class Timeline {
     ctx.fillStyle = "rgba(13,17,23,.62)";
     if (sx0 > 0) ctx.fillRect(0, 0, Math.min(sx0, W), trackH);
     if (sx1 < W) ctx.fillRect(Math.max(sx1, 0), 0, W - Math.max(sx1, 0), trackH);
-    // Grips, so the handles read as draggable at a glance. A pinned handle
-    // gets a half grip tucked inside the frame: it is still grabbable, but it
-    // reads as "the selection continues past here" rather than as an edge.
-    ctx.fillStyle = THEME.acc;
-    const gy = Math.round(trackH / 2) - 6;
+
+    const a = Math.max(0, Math.min(sx0, W)), b = Math.max(0, Math.min(sx1, W));
+    // An outline around the selected span. Dimming alone is invisible when the
+    // selection covers the whole axis, which is the default, so the control
+    // looked like a plain chart with no selector in it at all.
+    ctx.strokeStyle = THEME.acc;
+    ctx.lineWidth = 1;
+    ctx.strokeRect(a + 0.5, 0.5, Math.max(1, b - a - 1), trackH - 1);
+
+    // Handles, drawn as bars with a grip. A handle scrolled off the track is
+    // pinned just inside the frame instead of vanishing: at the default
+    // whole-axis selection both edges sit exactly on the frame, and a handle
+    // drawn on the boundary is neither visible nor grabbable.
+    const gh = Math.min(22, Math.round(trackH * 0.55));
+    const gy = Math.round((trackH - gh) / 2);
     for (const h of this._handlePixels()) {
-      const x = Math.round(h.x);
-      if (h.pinned) {
-        ctx.fillRect(h.edge === "from" ? 0 : W - 3, gy, 3, 12);
-        continue;
-      }
-      ctx.fillRect(x - 1, 0, 2, trackH);
-      ctx.fillRect(x - 3, gy, 6, 12);
+      const inward = h.edge === "from" ? 1 : -1;
+      const x = Math.round(h.pinned ? h.x + inward * HANDLE_W / 2 : h.x);
+      ctx.fillStyle = THEME.acc;
+      ctx.fillRect(x - HANDLE_W / 2, 0, HANDLE_W, trackH);
+      // Two notches, the conventional "this is a grab handle" mark.
+      ctx.fillStyle = "rgba(13,17,23,.85)";
+      ctx.fillRect(x - 2, gy, 1, gh);
+      ctx.fillRect(x + 1, gy, 1, gh);
     }
   }
 
@@ -743,7 +808,14 @@ export class Timeline {
     ctx.fillStyle = "rgba(230,237,243,.28)";
     ctx.fillRect(Math.round(this.hover), 0, 1, trackH);
     const col = cols.find(c => i >= c.i0 && i <= c.i1);
-    const label = `${this.axis.keyAt(i)}  ` +
+    // A raw bucket key is an implementation detail; nobody reads 200802 as a
+    // date. When a pixel column covers several buckets the tooltip names the
+    // range it actually summed, so the number and the label agree.
+    const span = col && col.i1 > col.i0
+      ? `${formatKey(this.axis.keyAt(col.i0), this.axis.unit)} – ` +
+        `${formatKey(this.axis.keyAt(col.i1), this.axis.unit)}`
+      : formatKey(this.axis.keyAt(i), this.axis.unit);
+    const label = `${span}   ` +
       `${fmtNum(col ? col.value : sumRange(this.series, i, i))} ${this.metricLabel}`;
     ctx.font = '10px ui-sans-serif,-apple-system,"Segoe UI",sans-serif';
     const w = ctx.measureText(label).width + 10;
