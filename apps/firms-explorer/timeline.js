@@ -358,6 +358,12 @@ export function quantize(width, count) {
 // because a 6px target is comfortable to see and uncomfortable to grab.
 const HANDLE_W = 6;
 
+// Opening view: select the last week, show the last nine months around it.
+const DEFAULT_SELECT_DAYS = 7;
+const DEFAULT_WINDOW_DAYS = 274;
+// Breathing room either side when fitting the domain to the selection.
+const FIT_MARGIN = 0.12;
+
 // A label needs this much room before the next one, or they collide.
 const MIN_LABEL_PX = 54;
 // Month-axis steps, in months. Every one divides evenly into the absolute
@@ -534,9 +540,47 @@ export class Timeline {
   setSource(meta, buckets) {
     this.axis = makeAxis(meta);
     this.series = seriesFromBuckets(this.axis, buckets);
-    this.domain = [0, this.axis.count];
-    this.selection = clampSelection(
-      {from: 0, to: this.axis.count - 1}, this.bounds());
+    this.openAtDefault();
+  }
+
+  /**
+   * Open on the most recent activity rather than the whole record.
+   *
+   * Selecting everything shows a global average and hides every event in it,
+   * and it also leaves the handles pinned to the frame with nothing to grab.
+   * The defaults are expressed in real time, not bucket counts, so they mean
+   * the same thing on a daily and a monthly axis: select the last week, show
+   * the last nine months around it.
+   *
+   * A week is finer than one monthly bucket, so on a monthly axis the
+   * selection clamps to the final bucket -- the same intent at the resolution
+   * the archive actually has.
+   */
+  openAtDefault(selectDays = DEFAULT_SELECT_DAYS,
+                windowDays = DEFAULT_WINDOW_DAYS) {
+    if (!this.axis) return;
+    const per = this.axis.unit === "month" ? 30.44 : 1;
+    const c = this.axis.count;
+    const sel = Math.max(1, Math.round(selectDays / per));
+    const win = Math.max(sel + 1, Math.round(windowDays / per));
+    this.domain = clampDomain([c - win, c], c);
+    this.selection = clampSelection({from: c - sel, to: c - 1}, this.bounds());
+    this._emit();
+    this.draw();
+  }
+
+  /**
+   * Fit the visible domain to the selection, with a margin.
+   *
+   * Without the margin the handles land exactly on the frame, where they are
+   * neither visible nor grabbable -- the same reason the default selection is
+   * not the whole axis.
+   */
+  fitToSelection() {
+    if (!this.axis) return;
+    const {from, to} = this.selection;
+    const pad = Math.max(1, Math.round((to - from + 1) * FIT_MARGIN));
+    this.domain = clampDomain([from - pad, to + 1 + pad], this.axis.count);
     this._emit();
     this.draw();
   }
@@ -620,7 +664,20 @@ export class Timeline {
   }
 
   /** Zoom about the middle of the track, for the buttons. */
-  zoomBy(factor) { this.zoomAt(this.width / 2, factor); }
+  /**
+   * Zoom about the selection, not the track centre.
+   *
+   * The buttons exist to get a closer look at what is selected. Anchoring them
+   * to the middle of the track walks the selection off screen after a few
+   * presses, which is the opposite of what pressing them means.
+   */
+  zoomBy(factor) {
+    const mid = this.axis
+      ? coordToX((this.selection.from + this.selection.to + 1) / 2,
+                 this.domain, this.width)
+      : this.width / 2;
+    this.zoomAt(Math.min(Math.max(mid, 0), this.width), factor);
+  }
 
   reset() {
     if (!this.axis) return;
@@ -856,7 +913,19 @@ export class Timeline {
     // deltaMode is lines on Firefox and pages on some remotes; normalise or a
     // single notch zooms three orders of magnitude.
     const unit = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? 400 : 1;
-    const dy = e.deltaY * unit;
+    const dy = e.deltaY * unit, dx = e.deltaX * unit;
+
+    // A two-finger trackpad swipe arrives as a wheel event carrying deltaX.
+    // Route it to pan and leave deltaY to zoom -- but pick ONE per event.
+    // A swipe is never perfectly horizontal, so acting on both axes would
+    // zoom slightly on every pan and feel broken. ctrl means pinch-zoom
+    // regardless, since that is how browsers report a trackpad pinch.
+    if (!e.ctrlKey && Math.abs(dx) > Math.abs(dy)) {
+      this.domain = panDomain(this.domain, -dx, this.width, this.axis.count);
+      this._emit();
+      this.draw();
+      return;
+    }
     this.zoomAt(this._x(e), Math.exp(-dy * (e.ctrlKey ? PINCH : WHEEL)));
   }
 
@@ -875,7 +944,19 @@ export class Timeline {
       return;
     }
     const x = this._x(e);
-    const mode = this.hitTest(x, this._y(e));
+    // Shift starts a fresh selection wherever the pointer is. Plain drag keeps
+    // panning; this is the inverse of Perfetto, which selects on plain drag and
+    // pans on shift, and is deliberate -- panning was here first.
+    const mode = e.shiftKey ? "draw" : this.hitTest(x, this._y(e));
+    if (mode === "draw") {
+      const i = bucketAt(x, this.domain, this.width);
+      this.selection = clampSelection({from: i, to: i}, this.bounds());
+      this._drag = {mode, x, anchor: i, domain: this.domain.slice(),
+                    selection: {...this.selection}, coord: 0};
+      this._emit();
+      this.draw();
+      return;
+    }
     this._drag = {
       mode, x, edge: mode === "from" || mode === "to" ? mode : null,
       domain: this.domain.slice(), selection: {...this.selection},
@@ -907,7 +988,13 @@ export class Timeline {
       return;
     }
     this.hover = x;
-    if (d.mode === "pan") {
+    if (d.mode === "draw") {
+      // Dragging either way from the anchor is normal; order the pair rather
+      // than refusing a right-to-left drag.
+      const i = bucketAt(x, this.domain, this.width);
+      const [lo, hi] = i < d.anchor ? [i, d.anchor] : [d.anchor, i];
+      this.selection = clampSelection({from: lo, to: hi}, this.bounds());
+    } else if (d.mode === "pan") {
       this.domain = panDomain(d.domain, x - d.x, this.width, this.axis.count);
     } else if (d.mode === "body") {
       const delta = Math.round(xToCoord(x, this.domain, this.width) - d.coord);
@@ -930,6 +1017,11 @@ export class Timeline {
   }
 
   _onKey(e) {
+    if ((e.key === "f" || e.key === "F") && !e.metaKey && !e.ctrlKey) {
+      e.preventDefault();
+      this.fitToSelection();
+      return;
+    }
     if (!this.axis) return;
     const step = e.key === "ArrowLeft" ? -1 : e.key === "ArrowRight" ? 1 : 0;
     if (!step) return;

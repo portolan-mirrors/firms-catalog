@@ -354,6 +354,43 @@ ok("a two-week day view labels days",
 eq("a zero-width track has no ticks", ticks(monthly, [0, 311], 0), []);
 eq("an empty domain has no ticks", ticks(monthly, [5, 5], 900), []);
 
+// ------------------------------------------------- opening view and fitting
+// The behaviours a user notices first, so they get real assertions.
+
+const monthMeta = {unit: "month", key_format: "count_YYYYMM",
+                   min: "200011", max: "202609", buckets: 311};
+const dayMeta = {unit: "day", key_format: "count_YYYYMMDD",
+                 min: "20200101", max: "20201231", buckets: 366};
+
+// "Last 7 days" is expressed in real time, so it has to survive translation to
+// whatever bucket the archive uses.
+const selBuckets = (unit, days) =>
+  Math.max(1, Math.round(days / (unit === "month" ? 30.44 : 1)));
+
+eq("seven days is seven daily buckets", selBuckets("day", 7), 7);
+eq("seven days clamps to one monthly bucket", selBuckets("month", 7), 1);
+ok("a week never selects nothing on a monthly axis",
+   selBuckets("month", 7) >= 1);
+eq("nine months is nine monthly buckets", selBuckets("month", 274), 9);
+eq("nine months is 274 daily buckets", selBuckets("day", 274), 274);
+
+{
+  const ax = makeAxis(dayMeta);
+  eq("daily axis counts a leap year", ax.count, 366);
+  eq("the last seven days start on Christmas",
+     ax.keyAt(ax.count - selBuckets("day", 7)), "20201225");
+}
+
+{
+  const ax = makeAxis(monthMeta);
+  eq("the last monthly bucket is the archive max",
+     ax.keyAt(ax.count - 1), "202609");
+  // The window must leave room for the selection plus a margin either side,
+  // or the handles land on the frame where they cannot be grabbed.
+  ok("a nine month window is wider than a one month selection",
+     selBuckets("month", 274) > selBuckets("month", 7));
+}
+
 // ------------------------------------------------------------------- report
 
 if (errors.length) {
