@@ -10,7 +10,7 @@
   ],
   "id": "detections",
   "title": "Active Fire Detections (MODIS and VIIRS)",
-  "description": "Global satellite active fire and thermal anomaly detections from NASA FIRMS, as one year-partitioned GeoParquet 2.0 table of 616,318,870 rows covering 2026 to 2026. Carries MODIS (Terra and Aqua, 1 km) and VIIRS (Suomi-NPP, NOAA-20, NOAA-21, 375 m). Near-real-time rows are appended hourly and replaced by science-quality rows as NASA finalizes them; the `quality` column says which is which. Rows are ordered by month and then by a Hilbert index, so a reader prunes on both time and space. Read the [agent guide](AGENTS.md) before querying: `confidence` is encoded differently per instrument and `type` is NULL for all near-real-time rows.",
+  "description": "Global satellite active fire and thermal anomaly detections from NASA FIRMS, as one year-partitioned GeoParquet 2.0 table of 616,318,870 rows covering 2020 to 2026. Carries MODIS (Terra and Aqua, 1 km) and VIIRS (Suomi-NPP, NOAA-20, NOAA-21, 375 m). Near-real-time rows are appended hourly and replaced by science-quality rows as NASA finalizes them; the `quality` column says which is which. Rows are ordered by month and then by a Hilbert index, so a reader prunes on both time and space. Read the [agent guide](AGENTS.md) before querying: `confidence` is encoded differently per instrument and `type` is NULL for all near-real-time rows.",
   "license": "CC0-1.0",
   "keywords": [
     "fire",
@@ -23,7 +23,7 @@
     "FIRMS",
     "near real-time"
   ],
-  "updated": "2026-09-10T11:37:41Z",
+  "updated": "2026-09-10T12:13:50Z",
   "providers": [
     {
       "name": "NASA LANCE FIRMS",
@@ -71,7 +71,7 @@
       "description": "Year of acquisition (UTC)."
     }
   ],
-  "partition:file_count": 1,
+  "partition:file_count": 2,
   "partition:glob": "s3://portolan-mirrors/firms-catalog/detections/year=*/*.parquet",
   "table:primary_geometry": "geometry",
   "table:row_count": 616318870,
@@ -205,6 +205,18 @@
       "pmtiles:layers": [
         "aggregate",
         "features"
+      ]
+    },
+    "pmtiles-alltime": {
+      "href": "./alltime.pmtiles",
+      "type": "application/vnd.pmtiles",
+      "title": "All years, monthly aggregate, vector tiles",
+      "roles": [
+        "visual",
+        "overview"
+      ],
+      "pmtiles:layers": [
+        "aggregate"
       ]
     },
     "thumbnail": {

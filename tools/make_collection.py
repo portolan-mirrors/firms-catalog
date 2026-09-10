@@ -57,8 +57,10 @@ def widen_from_items(catalog_dir: Path, live: tuple) -> tuple:
             continue
         bbox = item.get("bbox")
         if bbox and len(bbox) == 4:
-            minx, miny = min(minx, bbox[0]), min(miny, bbox[1])
-            maxx, maxy = max(maxx, bbox[2]), max(maxy, bbox[3])
+            minx = bbox[0] if minx is None else min(minx, bbox[0])
+            miny = bbox[1] if miny is None else min(miny, bbox[1])
+            maxx = bbox[2] if maxx is None else max(maxx, bbox[2])
+            maxy = bbox[3] if maxy is None else max(maxy, bbox[3])
         props = item.get("properties") or {}
         for key, keep in (("start_datetime", min), ("end_datetime", max)):
             raw = props.get(key)
@@ -79,6 +81,8 @@ def main() -> int:
     ap.add_argument("--out", required=True, help="collection.json path")
     ap.add_argument("--pmtiles", default="fire-latest.pmtiles")
     ap.add_argument("--pmtiles-layers", default="aggregate,features")
+    ap.add_argument("--alltime", default="alltime.pmtiles",
+                    help="all-time archive filename; empty to omit")
     # Filenames only. Each asset title is read from the style's own "name", so
     # the name lives in one place instead of drifting between the two tools.
     ap.add_argument("--styles", default="default.json,avg-frp.json")
@@ -89,11 +93,28 @@ def main() -> int:
     files = sorted(data.glob("year=*/*.parquet"))
     if not files:
         raise SystemExit(f"no year partitions under {data}")
-    glob_all = ",".join(f"'{f}'" for f in files)
+
+    # Count each row once. An item already reports its year's detections.parquet,
+    # read from the footer, so scanning a local copy of that same file adds it
+    # twice -- downloading one year to work on it silently inflated the
+    # collection by that year's row count. live.parquet is never in an item, so
+    # it is always counted here.
+    itemised = {p.parent.name for p in
+                Path(a.out).parent.glob("year=*/[0-9]*.json")}
+    counted = [f for f in files
+               if f.name != "detections.parquet" or f.parent.name not in itemised]
+    if not counted:
+        # Every local file is already described by an item; the extent comes
+        # entirely from them, so seed the scan with an empty result.
+        minx = miny = maxx = maxy = None
+        t0 = t1 = None
+        n = 0
+    glob_all = ",".join(f"'{f}'" for f in counted)
 
     con = duckdb.connect()
     con.execute("INSTALL spatial; LOAD spatial;")
-    minx, miny, maxx, maxy, t0, t1, n = con.execute(f"""
+    if counted:
+        minx, miny, maxx, maxy, t0, t1, n = con.execute(f"""
         SELECT min(ST_X(geometry)), min(ST_Y(geometry)),
                max(ST_X(geometry)), max(ST_Y(geometry)),
                min(acq_datetime), max(acq_datetime), count(*)
@@ -154,6 +175,21 @@ def main() -> int:
         "roles": ["visual", "data"],
         "pmtiles:layers": [x for x in a.pmtiles_layers.split(",") if x],
     }
+
+    # The all-time archive is a second visual asset rather than a replacement.
+    # fire-latest covers seven days at full detail; this one covers every month
+    # since 2000 on coarse cells, and is the only asset from which a client can
+    # see the whole record without knowing which years exist. Advertised only
+    # when the bytes are actually staged, because an asset naming a file that
+    # was never uploaded is worse than no asset.
+    if a.alltime and (data / a.alltime).exists():
+        assets["pmtiles-alltime"] = {
+            "href": f"./{a.alltime}",
+            "type": "application/vnd.pmtiles",
+            "title": "All years, monthly aggregate, vector tiles",
+            "roles": ["visual", "overview"],
+            "pmtiles:layers": ["aggregate"],
+        }
 
     assets["thumbnail"] = {
         "href": f"./{a.thumbnail}",
