@@ -414,6 +414,18 @@
       "href": "./year=2024/2024.json",
       "type": "application/geo+json",
       "title": "Active fire detections, 2024"
+    },
+    {
+      "rel": "item",
+      "href": "./year=2025/2025.json",
+      "type": "application/geo+json",
+      "title": "Active fire detections, 2025"
+    },
+    {
+      "rel": "item",
+      "href": "./year=2026/2026.json",
+      "type": "application/geo+json",
+      "title": "Active fire detections, 2026"
     }
   ]
 }
