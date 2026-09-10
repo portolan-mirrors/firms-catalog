@@ -1,0 +1,194 @@
+<!doctype html><html><head><meta charset="utf-8">
+<title>FIRMS explorer — timeline</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+ :root{--bg:#0d1117;--panel:#12171f;--inset:#0b0f15;--line:#2b3440;--fg:#e6edf3;
+       --dim:#8b949e;--acc:#f78166;--warn:#d29922}
+ *{box-sizing:border-box}
+ html,body{margin:0;height:100%;background:var(--bg);color:var(--fg);
+   font:12.5px/1.45 ui-sans-serif,-apple-system,"Segoe UI",sans-serif}
+ body{display:flex;flex-direction:column}
+ .stage{flex:1;display:flex;align-items:center;justify-content:center;
+   color:var(--dim);font-size:11.5px;text-align:center;padding:24px}
+ .stage p{max-width:44ch;margin:0}
+ .dock{border-top:1px solid var(--line);background:var(--panel);
+   box-shadow:0 -10px 34px rgba(0,0,0,.6)}
+ .bar{display:flex;gap:10px;align-items:center;padding:9px 12px;flex-wrap:wrap}
+ .grp{font-size:9.5px;text-transform:uppercase;letter-spacing:1px;color:var(--dim)}
+ .seg{display:flex;background:var(--inset);border:1px solid var(--line);
+   border-radius:7px;overflow:hidden}
+ .seg button{background:none;border:0;color:var(--dim);padding:5px 10px;
+   font:inherit;font-size:11px;cursor:pointer}
+ .seg button.on{background:var(--acc);color:var(--panel);font-weight:600}
+ .seg button:hover:not(.on){color:var(--fg)}
+ select{background:var(--inset);color:var(--fg);border:1px solid var(--line);
+   border-radius:6px;padding:4px 7px;font:inherit;font-size:11.5px}
+ .kv{font-size:10.5px;color:var(--dim)}
+ .kv b{color:var(--fg);font-variant-numeric:tabular-nums;font-weight:600}
+ .spacer{flex:1}
+ .note{font-size:10px;color:var(--warn);padding:0 12px 8px;display:none}
+ #track{display:block;width:100%;height:104px;outline:none}
+ #track:focus-visible{box-shadow:inset 0 0 0 1px var(--acc)}
+</style></head><body>
+
+<div class="stage"><p>The map goes here. This page exists to drive the timeline
+component on fixture data: no MapLibre, no PMTiles, no network. Bar values are
+generated, so read the shape, not the numbers.</p></div>
+
+<div class="dock">
+  <div class="bar">
+    <span class="grp">Archive</span>
+    <div class="seg" id="archive">
+      <button data-a="alltime" class="on">All time · monthly</button>
+      <button data-a="year">2020 · daily</button>
+      <button data-a="latest">Last 7 days</button>
+    </div>
+    <span class="grp">Metric</span>
+    <select id="metric">
+      <option value="count">Detections</option>
+      <option value="sum_frp">Total FRP (MW)</option>
+      <option value="mean_frp">Mean FRP (MW)</option>
+    </select>
+    <span class="grp">Span</span>
+    <div class="seg" id="presets"></div>
+    <div class="seg">
+      <button id="zin" title="Zoom in">+</button>
+      <button id="zout" title="Zoom out">−</button>
+      <button id="reset">Reset</button>
+    </div>
+    <span class="spacer"></span>
+    <span class="kv">selection <b id="sel">–</b></span>
+    <span class="kv">view <b id="view">–</b></span>
+    <span class="kv">buckets <b id="nb">–</b></span>
+  </div>
+  <div class="note" id="note"></div>
+  <canvas id="track" tabindex="0"
+    aria-label="Time axis. Left and right arrows step the selection; hold shift to extend it."></canvas>
+</div>
+
+<script type="module">
+import {Timeline, makeAxis, indexKey, keyIndex} from "./timeline.js";
+
+// Fixture archives, shaped exactly like the `firms:timeline` object each real
+// archive declares. Three of them, because the component must not assume a
+// bucket unit: the same code has to draw 311 months and 8 days.
+const TODAY = "20260910";
+const ARCHIVES = {
+  alltime: {label: "all time",
+    meta: {unit: "month", key_format: "count_YYYYMM",
+           min: "200011", max: "202609", buckets: 311},
+    presets: [["1y", 12], ["5y", 60], ["all", null]]},
+  year: {label: "2020",
+    meta: {unit: "day", key_format: "count_YYYYMMDD",
+           min: "20200101", max: "20201231", buckets: 366},
+    presets: [["7d", 7], ["30d", 30], ["90d", 90], ["all", null]]},
+  latest: {label: "last 7 days",
+    meta: {unit: "day", key_format: "count_YYYYMMDD",
+           min: indexKey(keyIndex(TODAY, "day") - 7, "day"), max: TODAY,
+           buckets: 8},
+    presets: [["all", null]]},
+};
+
+// A seeded generator, so reloading the page does not reshuffle the data and
+// make a rendering change look like noise.
+function lcg(seed) {
+  let s = seed >>> 0;
+  return () => ((s = (s * 1664525 + 1013904223) >>> 0) / 4294967296);
+}
+
+// Detections peak in the northern summer and again in the southern spring, on
+// a slow upward trend. Nothing here is real; it is enough shape to tell a
+// correct axis from a wrong one at a glance.
+function fixture(axis) {
+  const rand = lcg(axis.count * 7919 + axis.unit.length);
+  const count = {}, frp = {};
+  for (let i = 0; i < axis.count; i++) {
+    const key = axis.keyAt(i);
+    const month = +key.slice(4, 6);
+    const year = +key.slice(0, 4);
+    const season = 1 + 0.85 * Math.sin(((month - 4) / 12) * 2 * Math.PI)
+                     + 0.45 * Math.sin(((month - 9) / 12) * 2 * Math.PI);
+    const trend = 1 + (year - 2000) * 0.03;
+    const scale = axis.unit === "month" ? 900 : 40;
+    const n = Math.max(0, Math.round(scale * season * trend * (0.55 + rand())));
+    count[key] = n;
+    frp[key] = Math.round(n * (14 + rand() * 26));
+  }
+  return {count, frp};
+}
+
+const canvas = document.getElementById("track");
+const el = id => document.getElementById(id);
+let state = null;
+
+const tl = new Timeline(canvas, {onChange: report});
+
+function mount(name) {
+  const arc = ARCHIVES[name];
+  const axis = makeAxis(arc.meta);
+  state = {name, arc, axis, data: fixture(axis)};
+
+  const seg = el("presets");
+  seg.innerHTML = arc.presets
+    .map(([lbl, n]) => `<button data-n="${n == null ? "" : n}">${lbl}</button>`)
+    .join("");
+
+  tl.setSource(arc.meta, values());
+  tl.metricLabel = metricLabel();
+
+  // The declaration and the calendar span disagree only when the archive is
+  // sparse. Say so rather than drawing a shorter axis than the metadata claims.
+  const note = el("note");
+  if (axis.declaredBuckets !== axis.count) {
+    note.style.display = "block";
+    note.textContent =
+      `firms:timeline declares ${axis.declaredBuckets} buckets but ` +
+      `${axis.min}–${axis.max} spans ${axis.count}. The gap is drawn empty.`;
+  } else note.style.display = "none";
+
+  el("nb").textContent = `${axis.count} ${axis.unit}${axis.count === 1 ? "" : "s"}`;
+  document.querySelectorAll("#archive button").forEach(
+    b => b.classList.toggle("on", b.dataset.a === name));
+}
+
+function metricLabel() {
+  return {count: "detections", sum_frp: "MW total", mean_frp: "MW mean"}
+    [el("metric").value];
+}
+
+// Mean FRP is a ratio, and a ratio cannot be summed into a pixel column. The
+// component aggregates by addition, so hand it the per-bucket mean and let it
+// average across buckets rather than trying to re-derive one here.
+function values() {
+  const {data} = state, m = el("metric").value;
+  if (m === "count") return data.count;
+  if (m === "sum_frp") return data.frp;
+  const out = {};
+  for (const k of Object.keys(data.count))
+    out[k] = data.count[k] ? data.frp[k] / data.count[k] : 0;
+  return out;
+}
+
+function report(e) {
+  el("sel").textContent = e.keys ? `${e.keys.from} → ${e.keys.to}` : "–";
+  const d = tl.domainKeys();
+  el("view").textContent = d ? `${d.from} → ${d.to}` : "–";
+}
+
+el("archive").onclick = e => {
+  const a = e.target.dataset.a;
+  if (a && a !== state.name) mount(a);
+};
+el("metric").onchange = () => { tl.metricLabel = metricLabel(); tl.setValues(values()); };
+el("presets").onclick = e => {
+  if (!("n" in e.target.dataset)) return;
+  const n = e.target.dataset.n;
+  n ? tl.setSpan(+n) : tl.reset();
+};
+el("zin").onclick = () => tl.zoomBy(1.6);
+el("zout").onclick = () => tl.zoomBy(1 / 1.6);
+el("reset").onclick = () => tl.reset();
+
+mount("alltime");
+canvas.focus();
+</script></body></html>
