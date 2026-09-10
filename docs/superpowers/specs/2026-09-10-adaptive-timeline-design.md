@@ -78,6 +78,21 @@ integer counts over a converged cell set.
 An earlier guess of ~79 MB was wrong, having scaled naively from per-year file
 size. The measurement removed the reason for the fallback design.
 
+**Built, the numbers held.** 26 published years joined to 21,828 cells across
+305 columns for 6.3 MB of Parquet -- the cell union landing within a few
+percent of the ~20k the convergence curve predicted from seven samples.
+
+The tiled archive is 21.5 MB, not the ~8 MB implied above: that figure was the
+Parquet projection, and PMTiles costs about 3.4x more because cells repeat at
+every zoom of a band and each tile carries its own key dictionary. Still small
+enough that the conclusion is unchanged, but the projection to quote for a
+tiled archive is the Parquet size times roughly three, not the Parquet size.
+
+One number to watch: the z0 tile is 1.25 MB, which is the whole world at r4
+carrying every month. If first paint drags, the band split already used on the
+year archives applies here too -- it previously took a z0 tile from 4.3 MB to
+879 KB.
+
 ## Architecture
 
 Three archives, each owning one temporal band and exactly one bucket

@@ -65,6 +65,13 @@ def join_years(con, parts: dict[int, Path], out: Path) -> None:
     """One row per cell, one column per month, across every year."""
     sel = ["u.a5_cell", "any_value(u.geometry) AS geometry"]
     frm = []
+    # The shared rollups have to survive the join: gpio process overview needs
+    # a count column to roll levels up, and refuses the file without one.
+    # They are combined across years rather than taken from any single year --
+    # count and sum add, max takes the extreme, and the average is weighted by
+    # count, because a plain mean of yearly means would weight a quiet year the
+    # same as a busy one.
+    tot, sums, maxes = [], [], []
     for i, (_year, path) in enumerate(sorted(parts.items())):
         cols = sorted(
             c[0] for c in con.execute(
@@ -72,6 +79,16 @@ def join_years(con, parts: dict[int, Path], out: Path) -> None:
             if c[0].startswith("count_"))
         sel += [f't{i}."{c}" AS "{c}"' for c in cols]
         frm.append(f"LEFT JOIN '{path}' t{i} ON t{i}.a5_cell = u.a5_cell")
+        tot.append(f"coalesce(t{i}.count, 0)")
+        sums.append(f"coalesce(t{i}.sum_frp, 0)")
+        maxes.append(f"t{i}.max_frp")
+    total = " + ".join(tot)
+    total_frp = " + ".join(sums)
+    sel += [f"({total}) AS count",
+            f"({total_frp}) AS sum_frp",
+            f"greatest({', '.join(maxes)}) AS max_frp",
+            f"CASE WHEN ({total}) > 0 THEN ({total_frp}) / ({total}) END "
+            f"AS avg_frp"]
     union = " UNION ".join(
         f"SELECT a5_cell, geometry FROM '{p}'" for p in parts.values())
     con.execute(f"""

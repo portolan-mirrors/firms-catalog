@@ -1,0 +1,77 @@
+{
+  "version": 8,
+  "name": "Fire detections, all years (density)",
+  "sources": {
+    "data": {
+      "type": "vector",
+      "url": "pmtiles://../alltime.pmtiles"
+    }
+  },
+  "layers": [
+    {
+      "id": "fire-cells",
+      "type": "fill",
+      "source": "data",
+      "source-layer": "aggregate",
+      "paint": {
+        "fill-color": [
+          "step",
+          [
+            "zoom"
+          ],
+          [
+            "step",
+            [
+              "coalesce",
+              [
+                "get",
+                "count"
+              ],
+              0
+            ],
+            "#2c3d5a",
+            1023,
+            "#3f6d8f",
+            121615,
+            "#59a1a0",
+            549490,
+            "#a8c268",
+            1336939,
+            "#f2b134",
+            3527625,
+            "#e8722c",
+            4840841,
+            "#d1382a"
+          ],
+          5,
+          [
+            "step",
+            [
+              "coalesce",
+              [
+                "get",
+                "count"
+              ],
+              0
+            ],
+            "#2c3d5a",
+            2448,
+            "#3f6d8f",
+            19331,
+            "#59a1a0",
+            71668,
+            "#a8c268",
+            170637,
+            "#f2b134",
+            312175,
+            "#e8722c",
+            387060,
+            "#d1382a"
+          ]
+        ],
+        "fill-opacity": 0.78,
+        "fill-outline-color": "rgba(0,0,0,0.2)"
+      }
+    }
+  ]
+}

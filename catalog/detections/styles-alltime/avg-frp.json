@@ -1,0 +1,77 @@
+{
+  "version": 8,
+  "name": "Fire radiative power, all years (average)",
+  "sources": {
+    "data": {
+      "type": "vector",
+      "url": "pmtiles://../alltime.pmtiles"
+    }
+  },
+  "layers": [
+    {
+      "id": "fire-cells",
+      "type": "fill",
+      "source": "data",
+      "source-layer": "aggregate",
+      "paint": {
+        "fill-color": [
+          "step",
+          [
+            "zoom"
+          ],
+          [
+            "step",
+            [
+              "coalesce",
+              [
+                "get",
+                "avg_frp"
+              ],
+              0
+            ],
+            "#2c3d5a",
+            12,
+            "#3f6d8f",
+            20,
+            "#59a1a0",
+            33,
+            "#a8c268",
+            51,
+            "#f2b134",
+            125,
+            "#e8722c",
+            1036,
+            "#d1382a"
+          ],
+          5,
+          [
+            "step",
+            [
+              "coalesce",
+              [
+                "get",
+                "avg_frp"
+              ],
+              0
+            ],
+            "#2c3d5a",
+            11,
+            "#3f6d8f",
+            19,
+            "#59a1a0",
+            33,
+            "#a8c268",
+            47,
+            "#f2b134",
+            79,
+            "#e8722c",
+            124,
+            "#d1382a"
+          ]
+        ],
+        "fill-opacity": 0.78,
+        "fill-outline-color": "rgba(0,0,0,0.2)"
+      }
+    }
+  ]
+}
