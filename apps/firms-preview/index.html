@@ -69,9 +69,9 @@
     <div class="sub" id="hdsub">loading…</div></div>
 
   <div class="sec"><div class="grp">Dataset</div>
-    <div class="seg" id="dataset">
-      <button data-d="live" class="on">Last 7 days</button>
-      <button data-d="2020">2020</button></div>
+    <!-- Filled by renderDatasetControl(): the list comes from the catalog, so
+         there is nothing to hardcode here. -->
+    <div class="seg" id="dataset"></div>
   </div>
 
   <div class="sec">
@@ -144,26 +144,78 @@ const BASE = "https://data.source.coop/portolan-mirrors/firms-catalog/detections
 const BASEMAP = "https://data.source.coop/protomaps/openstreetmap/tiles/v3.pmtiles";
 const qs = new URLSearchParams(location.search);
 
-// One entry per queryable slice of the archive. An unreachable archive is
-// detected at load and its control disabled rather than registered: a source
-// that never loads stops MapLibre reaching "loaded", and every idle-driven
-// readout then freezes at its initial value.
+// One entry per queryable slice of the archive. Only the two archives that
+// have no STAC item of their own are named here — every year comes from the
+// catalog in discoverYears(), so a newly tiled year appears without an edit.
+//
+// An unreachable archive is detected at load and its control disabled rather
+// than registered: a source that never loads stops MapLibre reaching "loaded",
+// and every idle-driven readout then freezes at its initial value.
 const DATASETS = {
   live: {
     label: "Last 7 days",
     tiles: qs.get("tiles") || `${BASE}/fire-latest.pmtiles`,
+  },
+  alltime: {
+    label: "All time",
+    tiles: `${BASE}/alltime.pmtiles`,
+    // The only slice that spans the whole record, so the collection's own
+    // temporal extent and row count describe exactly what it holds.
     collection: `${BASE}/collection.json`,
   },
-  "2020": {
-    label: "2020",
-    tiles: qs.get("tiles-2020") || "./fire-2020-monthly.pmtiles",
-    summary: "2020-01-01 → 2020-12-31 · 25,184,030 detections",
-  },
 };
-const AGG_LAYER = "agg", PT_LAYER = "pts", SRC = "fire";
-const COLLECTION =
-  "https://data.source.coop/portolan-mirrors/firms-catalog/detections/collection.json";
+// Display order, kept beside DATASETS rather than read off it. A year id like
+// "2020" is an array-index-like key, and JavaScript enumerates those first and
+// in ascending numeric order however they were inserted — so Object.keys()
+// would put 2000 at the top of the list and the rolling window below the years.
+const DATASET_KEYS = ["live", "alltime"];
 
+// Datasets are discovered, not hardcoded. The collection lists one item per
+// published year, but a year only advertises a `pmtiles` asset once its
+// archive is built. A year without one is skipped: putting it in the selector
+// would offer a choice that loads nothing, and a source that never loads keeps
+// MapLibre from reaching "loaded", freezing every idle-driven readout at zero.
+async function discoverYears(){
+  const collUrl = `${BASE}/collection.json`;
+  let coll;
+  try{
+    coll = await (await fetch(collUrl)).json();
+  }catch(e){
+    console.warn("collection unavailable; the year list stays empty", e);
+    return;
+  }
+  const items = (coll.links||[]).filter(l => l.rel === "item");
+  const found = await Promise.all(items.map(async l => {
+    // Resolve against the URL the href was read from. Item hrefs are relative
+    // ("./year=2020/2020.json") and so are the asset hrefs inside each item;
+    // joining the strings by hand puts the archive in the wrong directory.
+    const href = new URL(l.href, collUrl).toString();
+    try{
+      const item = await (await fetch(href)).json();
+      const tiles = (item.assets||{}).pmtiles;
+      if(!tiles) return null;                  // published, not yet tiled
+      const p = item.properties||{};
+      const n = p["table:row_count"];
+      const day = t => t ? t.slice(0,10) : "?";
+      return {
+        id: item.id,
+        label: item.id,
+        tiles: new URL(tiles.href, href).toString(),
+        summary: `${day(p.start_datetime)} → ${day(p.end_datetime)}` +
+                 (n ? ` · ${n.toLocaleString()} detections` : ""),
+      };
+    }catch(e){
+      console.warn("skipping item "+href, e);
+      return null;
+    }
+  }));
+  // Newest first: the recent years are the ones anyone reaches for.
+  for(const y of found.filter(Boolean).sort((a,b)=>b.id.localeCompare(a.id))){
+    DATASETS[y.id] = y;
+    DATASET_KEYS.push(y.id);
+  }
+}
+const AGG_LAYER = "agg", PT_LAYER = "pts", SRC = "fire";
 
 const AGG_SRC_LAYER="aggregate", PT_SRC_LAYER="features";
 const aggId = () => AGG_LAYER;
@@ -179,7 +231,8 @@ const SENSORS=[["viirs_snpp","S-NPP"],["viirs_noaa20","NOAA-20"],["viirs_noaa21"
 const SENSOR_VAL={viirs_snpp:"VIIRS_SNPP",viirs_noaa20:"VIIRS_NOAA20",viirs_noaa21:"VIIRS_NOAA21",modis:"MODIS"};
 
 let S={dataset:"live",mode:"auto",metric:"count",minFrp:0,d0:0,d1:0,sensor:null,dn:"all",days:[],
-        bands:[],ptsMinZoom:null,available:{},timeKeys:[],breaks:null,offAgg:new Set(),offPts:new Set()};
+        bands:[],ptsMinZoom:null,available:{},timeKeys:[],timeline:null,breaks:null,
+        offAgg:new Set(),offPts:new Set()};
 
 // gpio records the zoom band of every aggregate level, and of the raw-point
 // band, in the archive metadata. Read it rather than assume a threshold: the
@@ -197,6 +250,14 @@ async function loadBands(ds,url){
     if(typeof br==="string"){ try{ br=JSON.parse(br); }catch{ br=null; } }
     S.breaks=br||null;
 
+    // What the buckets ARE, declared by the archive that owns them. Never
+    // infer the axis: reading it off a sampled feature is wrong because MVT
+    // omits zero-valued attributes, and reading it off the width of a bucket
+    // key only ever worked because two formats happened to differ in digits.
+    let tl=md["firms:timeline"];
+    if(typeof tl==="string"){ try{ tl=JSON.parse(tl); }catch{ tl=null; } }
+    S.timeline=tl||null;
+
     const vl=md.vector_layers||JSON.parse(md.json||"{}").vector_layers||[];
     const agg=vl.find(l=>l.id===AGG_SRC_LAYER);
     S.timeKeys=agg?Object.keys(agg.fields||{})
@@ -204,7 +265,11 @@ async function loadBands(ds,url){
     if(py&&py.bands){
       S.bands=py.bands;
       const f=py.bands.find(b=>b.layer===PT_SRC_LAYER);
-      S.ptsMinZoom=f?f.minzoom:null;
+      // An archive with no point band has no zoom at which points exist, so
+      // the cut is Infinity, not the 10 we assume for an archive that never
+      // said. The all-time archive is aggregate-only; treating 10 as its cut
+      // would hide the cells above z10 and draw nothing in their place.
+      S.ptsMinZoom=f?f.minzoom:Infinity;
     }
     S.available[ds]=true;
   }catch(e){
@@ -426,9 +491,13 @@ function updateMode(){
   const w=document.getElementById("zwarn");
   if(S.mode==="pts"&&!ptsHere){
     w.style.display="block";
-    w.textContent=`Raw points start at zoom ${cut}. This archive carries no point `+
-      `band below that, so nothing draws here. Zoom in, or rebuild with a lower `+
-      `--features-min-zoom.`;
+    w.textContent=cut===Infinity
+      ? `This archive is aggregate-only — it carries no raw points at any zoom, `+
+        `so nothing draws in Points mode. Switch to Aggregate, or pick a dataset `+
+        `whose pyramid has a features band.`
+      : `Raw points start at zoom ${cut}. This archive carries no point `+
+        `band below that, so nothing draws here. Zoom in, or rebuild with a lower `+
+        `--features-min-zoom.`;
   } else w.style.display="none";
 }
 
@@ -436,23 +505,38 @@ function updateMode(){
 async function mountDataset(){
   for(const id of [PT_LAYER, AGG_LAYER]) if(map.getLayer(id)) map.removeLayer(id);
   if(map.getSource(SRC)) map.removeSource(SRC);
-  S.bands=[]; S.ptsMinZoom=null; S.days=[]; S.d0=0; S.d1=0;
+  S.bands=[]; S.ptsMinZoom=null; S.days=[]; S.d0=0; S.d1=0; S.timeline=null;
 
   const url = DATASETS[S.dataset].tiles;
   await loadBands(S.dataset, url);
-  if(!S.available[S.dataset]){ renderControls(); return; }
+  if(!S.available[S.dataset]){
+    // Nothing was mounted, so no map event follows to refresh the readouts.
+    // Say the archive is missing rather than leaving the previous dataset's
+    // numbers on screen, where they read as this dataset's.
+    document.getElementById("hdsub").textContent =
+      DATASETS[S.dataset].label + " · archive unavailable";
+    document.getElementById("ncells").textContent="0";
+    document.getElementById("nf").textContent="0";
+    renderControls();
+    return;
+  }
 
   map.addSource(SRC,{type:"vector",url:"pmtiles://"+url});
   map.addLayer({id:AGG_LAYER,type:"fill",source:SRC,"source-layer":AGG_SRC_LAYER,
     layout:{visibility:"none"},
     paint:{"fill-color":step("count",RAMPS.count.stops),"fill-opacity":.74,
            "fill-outline-color":"rgba(0,0,0,.22)"}});
-  map.addLayer({id:PT_LAYER,type:"circle",source:SRC,"source-layer":PT_SRC_LAYER,
-    layout:{visibility:"none"},
-    paint:{"circle-radius":["interpolate",["linear"],["zoom"],9,1.6,12,3,15,5.5],
-           "circle-color":step("frp",RAMPS.frp.stops),"circle-opacity":.9}});
-  // Months arrive unpadded (count_1 … count_12), so sort numerically where the
-  // keys are numeric-width, lexically where they are dates.
+  // Skip the point layer entirely where the pyramid declares no features band:
+  // the source-layer does not exist in those tiles, and a layer bound to a
+  // missing source-layer is a permanently empty layer the mode switch can
+  // still select.
+  if(S.ptsMinZoom!==Infinity)
+    map.addLayer({id:PT_LAYER,type:"circle",source:SRC,"source-layer":PT_SRC_LAYER,
+      layout:{visibility:"none"},
+      paint:{"circle-radius":["interpolate",["linear"],["zoom"],9,1.6,12,3,15,5.5],
+             "circle-color":step("frp",RAMPS.frp.stops),"circle-opacity":.9}});
+  // Months arrive unpadded (count_1 … count_12) in the oldest archives, so sort
+  // numerically where the keys are numeric-width, lexically where they are dates.
   const k=S.timeKeys.slice();
   S.days = k.every(x=>x.length<=2) ? k.sort((a,b)=>+a-+b) : k.sort();
   S.d0=0; S.d1=Math.max(0,S.days.length-1);
@@ -464,39 +548,108 @@ async function mountDataset(){
   scheduleReadout();
 }
 
-// Header text: the rolling window reads its own published collection so the
-// count never goes stale; a fixed year carries its own.
+// A bucket key spelled out as a date. Which unit the archive counts in comes
+// from firms:timeline; this only decides how to punctuate a key we already
+// hold, and the two published formats are count_YYYYMM and count_YYYYMMDD.
+const bucketDay = k => k.length>=8
+  ? `${k.slice(0,4)}-${k.slice(4,6)}-${k.slice(6,8)}`
+  : `${k.slice(0,4)}-${k.slice(4,6)}`;
+
+// Header text for the active dataset. A year carries its own range and count
+// from its STAC item. The all-time archive spans the whole record, so the
+// collection's extent describes it exactly. The rolling window has neither an
+// item nor a collection that describes only it — the collection now covers all
+// 27 years — so it reports the span of the buckets the archive actually holds.
 async function showSummary(){
   const d = DATASETS[S.dataset];
   const el = document.getElementById("hdsub");
   if(d.summary){ el.textContent = d.summary; return; }
-  el.textContent = "loading…";
-  try{
-    const c = await (await fetch(d.collection)).json();
-    const iv = ((c.extent||{}).temporal||{}).interval||[[null,null]];
-    const day = t => t ? t.slice(0,10) : "?";
-    el.textContent = `${day(iv[0][0])} → ${day(iv[0][1])} · `+
-                     `${(c["table:row_count"]||0).toLocaleString()} detections`;
-  }catch{ el.textContent = d.label; }
+  if(d.collection){
+    el.textContent = "loading…";
+    try{
+      const c = await (await fetch(d.collection)).json();
+      const iv = ((c.extent||{}).temporal||{}).interval||[[null,null]];
+      const day = t => t ? t.slice(0,10) : "?";
+      el.textContent = `${day(iv[0][0])} → ${day(iv[0][1])} · `+
+                       `${(c["table:row_count"]||0).toLocaleString()} detections`;
+    }catch{ el.textContent = d.label; }
+    return;
+  }
+  const k = S.days;
+  el.textContent = k.length
+    ? `${bucketDay(k[0])} → ${bucketDay(k[k.length-1])}` : d.label;
 }
 
-map.on("load", async () => { await mountDataset(); });
+// Start discovery before the map is ready so the catalog fetch and the style
+// load overlap; the first mount waits on it so the selector is complete before
+// anything is chosen.
+const discovered = discoverYears();
+map.on("load", async () => {
+  await discovered;
+  renderDatasetControl();
+  await mountDataset();
+});
 
-document.getElementById("dataset").onclick=e=>{
-  const d=e.target.dataset.d;
-  if(!d || d===S.dataset) return;
-  S.dataset=d; mountDataset();
-};
-
+// Twenty-seven years do not fit a row of buttons, so past a handful the
+// control becomes a <select>. Rebuilt from DATASETS, never edited in place.
+const DATASET_SELECT_ABOVE = 8;
+let _dsSig = null;
+function renderDatasetControl(){
+  const host = document.getElementById("dataset");
+  const keys = DATASET_KEYS;
+  // renderControls() runs on every coalesced slider frame. Rebuilding a
+  // <select>'s DOM mid-interaction shuts its dropdown, so redraw only when
+  // something the control actually shows has changed.
+  const sig = JSON.stringify([keys, S.dataset, keys.map(k=>S.available[k]!==false)]);
+  if(sig === _dsSig) return;
+  _dsSig = sig;
+  host.innerHTML = "";
+  if(keys.length > DATASET_SELECT_ABOVE){
+    host.className = "";                       // .seg is a button row, not a select
+    const sel = document.createElement("select");
+    for(const k of keys){
+      const o = document.createElement("option");
+      o.value = k;
+      o.textContent = DATASETS[k].label;
+      o.disabled = S.available[k] === false;
+      sel.appendChild(o);
+    }
+    sel.value = S.dataset;
+    sel.onchange = () => selectDataset(sel.value);
+    host.appendChild(sel);
+    return;
+  }
+  host.className = "seg";
+  for(const k of keys){
+    const b = document.createElement("button");
+    b.type = "button";
+    b.textContent = DATASETS[k].label;
+    b.className = k === S.dataset ? "on" : "";
+    const ok = S.available[k] !== false;
+    b.disabled = !ok;
+    b.style.opacity = ok ? "" : "0.4";
+    b.title = ok ? "" : "archive unavailable";
+    b.onclick = () => selectDataset(k);
+    host.appendChild(b);
+  }
+}
+function selectDataset(key){
+  if(!key || key === S.dataset) return;
+  S.dataset = key;
+  renderDatasetControl();
+  mountDataset();
+}
+renderDatasetControl();   // the two known archives show before discovery lands
 
 // The chip DOM is rendered FROM state, never edited independently. An earlier
 // version toggled classes on click and separately re-rendered on discovery,
 // which let the visible selection and S drift apart.
 function renderControls(){
   const n=S.days.length;
-  const gran = n===0 ? "Time"
-             : S.days[0].length<=2 ? "Months"
-             : S.days[0].length>=8 ? "Days" : "Days";
+  // The archive declares its own unit. The old guess read key width, which
+  // called the all-time archive's six-digit YYYYMM buckets "Days". An archive
+  // that declares nothing gets a neutral label rather than a fresh guess.
+  const gran = S.timeline ? (S.timeline.unit==="month" ? "Months" : "Days") : "Time";
   const gl=document.getElementById("daylabel"); if(gl) gl.textContent=gran;
   const d0=document.getElementById("d0"), d1=document.getElementById("d1");
   if(n){
@@ -506,9 +659,12 @@ function renderControls(){
     const f=document.getElementById("dfill");
     f.style.left=pct(S.d0)+"%"; f.style.right=(100-pct(S.d1))+"%";
     const MON=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+    // Punctuation only, off the key's own width: YYYYMMDD as MM/DD, YYYYMM as
+    // "Sep 20" — a 27-year archive needs the year to tell its months apart —
+    // and the bare 1…12 the oldest single-year builds used.
     const fmt=d=> d.length<=2 ? (MON[+d-1]||d)
                 : d.length>=8  ? `${d.slice(4,6)}/${d.slice(6,8)}`
-                :                `${d.slice(0,2)}/${d.slice(2,4)}`;
+                :                `${MON[+d.slice(4,6)-1]||d.slice(4,6)} ${d.slice(2,4)}`;
     document.getElementById("dayrange").textContent=
       allDays()?"all":(S.d0===S.d1?fmt(S.days[S.d0]):`${fmt(S.days[S.d0])} – ${fmt(S.days[S.d1])}`);
     document.getElementById("dlo").textContent=fmt(S.days[0]);
@@ -516,13 +672,7 @@ function renderControls(){
   }
   document.querySelectorAll("#mode button").forEach(b=>
     b.classList.toggle("on", b.dataset.m===S.mode));
-  document.querySelectorAll("#dataset button").forEach(b=>{
-    b.classList.toggle("on", b.dataset.d===S.dataset);
-    const ok=S.available[b.dataset.d]!==false;
-    b.disabled=!ok;
-    b.style.opacity=ok?"":"0.4";
-    b.title=ok?"":"archive unavailable";
-  });
+  renderDatasetControl();
   document.querySelectorAll("#dn button").forEach(b=>
     b.classList.toggle("on", b.dataset.v===S.dn));
   document.getElementById("metric").value=S.metric;
