@@ -201,6 +201,17 @@ def main() -> int:
         ],
     }
     out = Path(a.out)
+    # Item links belong to make_items.py, which appends one per published year
+    # after this runs. They are carried across rather than rebuilt here: this
+    # tool has no idea which years are published, so regenerating without them
+    # silently emptied the collection's item list -- no error, no failed gate,
+    # just a catalog that had stopped listing its items.
+    if out.exists():
+        try:
+            prior = json.loads(out.read_text()).get("links", [])
+        except (OSError, json.JSONDecodeError):
+            prior = []
+        col["links"] += [l for l in prior if l.get("rel") == "item"]
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(col, indent=2) + "\n")
     print(f"wrote {out}: {n:,} rows, {len(files)} partition(s), "
