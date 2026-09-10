@@ -228,16 +228,44 @@ def aws_session(config: dict[str, str]):
     )
 
 
+# Source Cooperative sits behind a CDN that answers 524 when its origin takes
+# too long on an UploadPart. botocore's standard retry mode covers 500, 502,
+# 503 and 504 but not 524, so a part that times out fails the whole file. Both
+# 2022 and 2023 died this way after their data had already been rebuilt.
+RETRY_STATUS = {500, 502, 503, 504, 520, 522, 524}
+UPLOAD_ATTEMPTS = 6
+
+
 def s3_client(session, config: dict[str, str]):
     """An S3 client honoring ``endpoint_url`` when the config sets one.
 
     Source Cooperative serves S3 at its own host, so a client built without
     the endpoint silently talks to AWS instead.
     """
+    from botocore.config import Config
+
+    # Larger parts mean fewer requests and so fewer chances to hit a timeout:
+    # a 460 MB file is 58 parts at the 8 MB default and 8 parts at 64 MB.
+    cfg = Config(retries={"max_attempts": 10, "mode": "standard"},
+                 read_timeout=180, connect_timeout=30)
     endpoint = config.get("endpoint_url") or None
     if endpoint:
-        return session.client("s3", endpoint_url=endpoint)
-    return session.client("s3")
+        return session.client("s3", endpoint_url=endpoint, config=cfg)
+    return session.client("s3", config=cfg)
+
+
+def transfer_config():
+    """Multipart settings: fewer, larger parts."""
+    from boto3.s3.transfer import TransferConfig
+
+    return TransferConfig(multipart_threshold=64 * 1024 * 1024,
+                          multipart_chunksize=64 * 1024 * 1024,
+                          max_concurrency=4, use_threads=True)
+
+
+def status_of(exc) -> int | None:
+    meta = getattr(exc, "response", None) or {}
+    return (meta.get("ResponseMetadata") or {}).get("HTTPStatusCode")
 
 
 def remote_index(
@@ -282,13 +310,32 @@ def upload_all(session, bucket: str, uploads: list[Upload], config: dict[str, st
             thread_state.client = s3_client(session, config or {})
         return thread_state.client
 
+    xfer = transfer_config()
+
     def put(upload: Upload) -> None:
-        client().upload_file(
-            str(upload.local),
-            bucket,
-            upload.key,
-            ExtraArgs={"ContentType": upload.content_type},
-        )
+        # Retry the whole file on a gateway-class failure. Uploading a part
+        # twice is safe: multipart parts are addressed by number, so a repeat
+        # replaces rather than appends.
+        import time
+
+        for attempt in range(1, UPLOAD_ATTEMPTS + 1):
+            try:
+                client().upload_file(
+                    str(upload.local),
+                    bucket,
+                    upload.key,
+                    ExtraArgs={"ContentType": upload.content_type},
+                    Config=xfer,
+                )
+                return
+            except Exception as exc:  # noqa: BLE001 - retry decision below
+                code = status_of(exc)
+                if code not in RETRY_STATUS or attempt == UPLOAD_ATTEMPTS:
+                    raise
+                wait = min(60, 2 ** attempt)
+                print(f"  retry {upload.key} after HTTP {code} "
+                      f"({attempt}/{UPLOAD_ATTEMPTS - 1}, {wait}s)")
+                time.sleep(wait)
 
     failures: list[str] = []
     done = 0
