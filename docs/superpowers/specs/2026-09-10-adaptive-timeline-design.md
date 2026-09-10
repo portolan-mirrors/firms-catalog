@@ -89,9 +89,25 @@ enough that the conclusion is unchanged, but the projection to quote for a
 tiled archive is the Parquet size times roughly three, not the Parquet size.
 
 One number to watch: the z0 tile is 1.25 MB, which is the whole world at r4
-carrying every month. If first paint drags, the band split already used on the
-year archives applies here too -- it previously took a z0 tile from 4.3 MB to
-879 KB.
+carrying every month.
+
+The fix is NOT the band split used on the year archives. That split gave the
+coarse band monthly columns and the fine band daily ones, taking a z0 tile
+from 4,175 KB to 858 KB with the same 15,623 cells -- a 4.9x win bought purely
+by carrying 12 columns per cell instead of 366. But it buys that by chaining
+temporal resolution to spatial zoom, which is exactly what this design removed:
+applied here, zooming the map out past z5 would silently collapse a monthly
+timeline to yearly.
+
+The right lever is fewer cells, not fewer time columns. An extra coarse band
+covering only z0 and z1 -- r3 preferred, r2 acceptable -- cuts the cell count
+by roughly an order of magnitude while every cell keeps all its monthly
+columns, so the timeline stays monthly at every map zoom.
+
+Deferred until the map exists, and it may never be needed. PMTiles is
+range-requested, so a tile that is never requested costs nothing: if the app
+opens at z2 or closer, the z0 tile is never fetched and its size is moot. Fix
+the default zoom before fixing the tile.
 
 ## Architecture
 
