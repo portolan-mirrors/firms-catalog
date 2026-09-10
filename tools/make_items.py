@@ -181,17 +181,24 @@ def main() -> int:
             ],
         }
 
-        # A year is only tiled once its parquet is final, so the tile assets
-        # appear on the item only when the styles have actually been generated.
+        # Advertise the tileset only when it is actually published.
+        #
+        # This used to key off a local styles/default.json, which is the wrong
+        # proxy: styles are generated at build time and committed, while the
+        # archive is uploaded separately, so the item promised a
+        # fire-<year>.pmtiles that returned 404. An asset naming a file that
+        # is not there is worse than no asset -- a viewer registers the layer,
+        # the fetch fails, and the map never reaches idle.
         sdir = cat / "detections" / f"year={y}" / "styles"
-        if (sdir / "default.json").exists():
-            turl = f"{PUBLIC}/detections/year={y}/fire-{y}.pmtiles"
+        turl = f"{PUBLIC}/detections/year={y}/fire-{y}.pmtiles"
+        tsize = remote_size(turl)
+        if tsize and (sdir / "default.json").exists():
             item["assets"]["pmtiles"] = {
                 "href": f"./fire-{y}.pmtiles",
                 "type": "application/vnd.pmtiles",
                 "title": f"{y} detections, vector tiles",
                 "roles": ["visual", "tiles"],
-                **({"file:size": tsize} if (tsize := remote_size(turl)) else {}),
+                "file:size": tsize,
             }
             for sf in sorted(sdir.glob("*.json")):
                 item["assets"][f"style-{sf.stem}"] = {
