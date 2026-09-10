@@ -217,7 +217,11 @@ import sys
 import tempfile
 from pathlib import Path
 
-from timeline_meta import declare
+# Before the import below, not after: by the time __main__ runs, the import
+# has already happened, and on import as a module __main__ never runs at all.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from timeline_meta import declare  # noqa: E402
 
 AGGREGATE_LAYER = "aggregate"
 
@@ -263,7 +267,6 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    sys.path.insert(0, str(Path(__file__).resolve().parent))
     raise SystemExit(main())
 ```
 
@@ -782,7 +785,6 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    sys.path.insert(0, str(Path(__file__).resolve().parent))
     raise SystemExit(main())
 ```
 
