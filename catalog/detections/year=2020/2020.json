@@ -47,8 +47,10 @@
     "table:row_count": 25184030,
     "firms:sensors": [
       "MODIS",
-      "VIIRS_NOAA20",
       "VIIRS_SNPP"
+    ],
+    "firms:sensors_pending": [
+      "VIIRS_NOAA20"
     ]
   },
   "assets": {
@@ -75,7 +77,9 @@
       "title": "Fire radiative power, 2020 (average)",
       "roles": [
         "style"
-      ]
+      ],
+      "file:size": 1439,
+      "file:checksum": "1220af681fcf3d72c22715d6a948617d66197381cf05a6c46720b6c3ec3cd8835a38"
     },
     "style-default": {
       "href": "./styles/default.json",
@@ -83,7 +87,9 @@
       "title": "Fire detections, 2020 (density)",
       "roles": [
         "style"
-      ]
+      ],
+      "file:size": 1449,
+      "file:checksum": "12202aed9735d6d6043d96abe0fd9d6009d39274f21a3cae0ecae46012698688f2c1"
     }
   },
   "links": [

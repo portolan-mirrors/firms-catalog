@@ -15,6 +15,7 @@ style JSON with no extension of any kind, so any MapLibre viewer renders them.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import subprocess
 from pathlib import Path
@@ -81,6 +82,7 @@ def main() -> int:
 
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
+    written: list[Path] = []
     for name, (metric, title) in STYLES.items():
         if not all(metric in b["metrics"] for b in bands):
             continue
@@ -112,9 +114,37 @@ def main() -> int:
         }
         p = out / f"{name}.json"
         p.write_text(json.dumps(style, indent=2) + "\n")
+        written.append(p)
         zr = ", ".join(f"r?@z{b['minzoom']}+" for b in bands)
         print(f"  {p}  ({metric}, {len(bands)} band(s): {zr})")
+
+    refresh_declared_bytes(out, written)
     return 0
+
+
+def refresh_declared_bytes(out: Path, written: list[Path]) -> None:
+    """Bring file:size and file:checksum back in line with the new bytes.
+
+    Rewriting a style invalidates whatever the metadata declared about it, and
+    a stale checksum is a validation error, so the tool that changed the bytes
+    fixes the declaration rather than leaving it for the next full rebuild.
+    """
+    for meta in sorted(set(out.parent.glob("*.json"))):
+        doc = json.loads(meta.read_text())
+        assets = doc.get("assets") or {}
+        touched = False
+        for asset in assets.values():
+            href = asset.get("href", "")
+            for p in written:
+                if href.endswith(f"/{p.name}") and p.name in href:
+                    if "file:size" in asset or "file:checksum" in asset:
+                        asset["file:size"] = p.stat().st_size
+                        asset["file:checksum"] = "1220" + hashlib.sha256(
+                            p.read_bytes()).hexdigest()
+                        touched = True
+        if touched:
+            meta.write_text(json.dumps(doc, indent=2) + "\n")
+            print(f"  refreshed declared bytes in {meta}")
 
 
 if __name__ == "__main__":

@@ -47,8 +47,10 @@
     "table:row_count": 24753917,
     "firms:sensors": [
       "MODIS",
-      "VIIRS_NOAA20",
       "VIIRS_SNPP"
+    ],
+    "firms:sensors_pending": [
+      "VIIRS_NOAA20"
     ]
   },
   "assets": {

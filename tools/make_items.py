@@ -10,14 +10,18 @@ scan: row count from the file metadata, bounds from the `geo` key, and the time
 range from row-group statistics on acq_datetime. That is three range requests
 per year instead of a full read.
 
-Which sensors a year holds is not read from the data either. It follows from
-the FIRMS availability ranges, which is what decided the slices in the first
-place.
+Which sensors a year holds IS read from the data, though. Inferring it from
+the FIRMS availability ranges looks free but states something the file may not
+support: a year published before one of its sources finished fetching would
+advertise a sensor it does not contain. Grouping on the sensor column reads
+only that column -- about twelve seconds against a 460 MB remote file -- and
+says what is actually there.
 """
 from __future__ import annotations
 
 import argparse
 import csv
+import hashlib
 import io
 import json
 import urllib.error
@@ -40,7 +44,16 @@ def availability(key: str) -> dict:
             for r in csv.DictReader(io.StringIO(raw))}
 
 
-def sensors_for(year: int, avail: dict) -> list[str]:
+def sensors_in(con, url: str) -> list[str]:
+    """Distinct sensors actually present, by reading just the sensor column."""
+    rows = con.execute(
+        f"SELECT DISTINCT sensor FROM read_parquet('{url}') WHERE sensor IS NOT NULL"
+    ).fetchall()
+    return sorted(r[0] for r in rows)
+
+
+def expected_sensors(year: int, avail: dict) -> list[str]:
+    """What the availability ranges say the year should hold, for comparison."""
     out = set()
     for source, (lo, hi) in avail.items():
         s = SENSOR_OF.get(source)
@@ -64,6 +77,27 @@ def stats(con, url: str) -> dict | None:
         "SELECT min(stats_min_value), max(stats_max_value) FROM parquet_metadata(?) "
         "WHERE path_in_schema='acq_datetime'", [url]).fetchone()
     return {"rows": rows, "bbox": bbox, "t0": t0, "t1": t1}
+
+
+def remote_size(url: str) -> int | None:
+    """Content-Length for a published asset, without fetching the bytes.
+
+    Size is worth one HEAD; checksum is not worth nine gigabytes of download,
+    so published data assets carry file:size and no file:checksum. The local
+    style assets get both, below.
+    """
+    try:
+        req = urllib.request.Request(url, method="HEAD")
+        n = urllib.request.urlopen(req, timeout=30).headers.get("Content-Length")
+        return int(n) if n else None
+    except (urllib.error.URLError, OSError, ValueError):
+        return None
+
+
+def local_bytes(path: Path) -> dict:
+    b = path.read_bytes()
+    return {"file:size": len(b),
+            "file:checksum": "1220" + hashlib.sha256(b).hexdigest()}
 
 
 def iso(v) -> str | None:
@@ -98,7 +132,11 @@ def main() -> int:
         if st is None:
             skipped.append(y)
             continue
-        sensors = sensors_for(y, avail)
+        sensors = sensors_in(con, url)
+        # A year missing a sensor its sources covered is a year that was
+        # published before that slice finished. Say so rather than let the
+        # item read as complete.
+        short = sorted(set(expected_sensors(y, avail)) - set(sensors))
         bbox = st["bbox"] or [-180, -90, 180, 90]
         item = {
             "type": "Feature",
@@ -119,6 +157,7 @@ def main() -> int:
                 "end_datetime": iso(st["t1"]),
                 "table:row_count": st["rows"],
                 "firms:sensors": sensors,
+                **({"firms:sensors_pending": short} if short else {}),
             },
             "assets": {
                 "data": {
@@ -126,6 +165,7 @@ def main() -> int:
                     "type": "application/vnd.apache.parquet",
                     "title": f"{y} detections, GeoParquet 2.0",
                     "roles": ["data"],
+                    **({"file:size": size} if (size := remote_size(url)) else {}),
                 },
             },
             "links": [
@@ -141,24 +181,28 @@ def main() -> int:
         # appear on the item only when the styles have actually been generated.
         sdir = cat / "detections" / f"year={y}" / "styles"
         if (sdir / "default.json").exists():
+            turl = f"{PUBLIC}/detections/year={y}/fire-{y}.pmtiles"
             item["assets"]["pmtiles"] = {
                 "href": f"./fire-{y}.pmtiles",
                 "type": "application/vnd.pmtiles",
                 "title": f"{y} detections, vector tiles",
                 "roles": ["visual", "tiles"],
+                **({"file:size": tsize} if (tsize := remote_size(turl)) else {}),
             }
-            for st in sorted(sdir.glob("*.json")):
-                item["assets"][f"style-{st.stem}"] = {
-                    "href": f"./styles/{st.name}",
+            for sf in sorted(sdir.glob("*.json")):
+                item["assets"][f"style-{sf.stem}"] = {
+                    "href": f"./styles/{sf.name}",
                     "type": "application/vnd.mapbox.style+json",
-                    "title": json.loads(st.read_text()).get("name", st.stem),
+                    "title": json.loads(sf.read_text()).get("name", sf.stem),
                     "roles": ["style"],
+                    **local_bytes(sf),
                 }
         d = cat / "detections" / f"year={y}"
         d.mkdir(parents=True, exist_ok=True)
         (d / f"{y}.json").write_text(json.dumps(item, indent=2) + "\n")
         written.append(y)
-        print(f"  {y}: {st['rows']:>11,} rows  {','.join(sensors)}")
+        flag = f"   PENDING: {','.join(short)}" if short else ""
+        print(f"  {y}: {st['rows']:>11,} rows  {','.join(sensors)}{flag}")
 
     # Collection links: one per item, replacing any previous set.
     coll["links"] = [l for l in coll["links"] if l.get("rel") != "item"]
