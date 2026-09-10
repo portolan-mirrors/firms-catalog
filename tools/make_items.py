@@ -32,6 +32,10 @@ import duckdb
 
 PUBLIC = "https://data.source.coop/portolan-mirrors/firms-catalog"
 AVAIL = "https://firms.modaps.eosdis.nasa.gov/api/data_availability/csv/{key}/ALL"
+# Source Cooperative's CDN answers 403 to the default Python-urllib agent, so
+# every request here names itself. Without this a HEAD looks like a missing
+# file rather than a rejected client.
+UA = {"User-Agent": "firms-catalog-tools/1.0 (+https://github.com/portolan-mirrors/firms-catalog)"}
 SENSOR_OF = {"MODIS_SP": "MODIS", "MODIS_NRT": "MODIS",
              "VIIRS_SNPP_SP": "VIIRS_SNPP", "VIIRS_SNPP_NRT": "VIIRS_SNPP",
              "VIIRS_NOAA20_SP": "VIIRS_NOAA20", "VIIRS_NOAA20_NRT": "VIIRS_NOAA20",
@@ -87,7 +91,7 @@ def remote_size(url: str) -> int | None:
     style assets get both, below.
     """
     try:
-        req = urllib.request.Request(url, method="HEAD")
+        req = urllib.request.Request(url, method="HEAD", headers=UA)
         n = urllib.request.urlopen(req, timeout=30).headers.get("Content-Length")
         return int(n) if n else None
     except (urllib.error.URLError, OSError, ValueError):

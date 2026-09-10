@@ -56,7 +56,8 @@
       "title": "2000 detections, GeoParquet 2.0",
       "roles": [
         "data"
-      ]
+      ],
+      "file:size": 4073019
     }
   },
   "links": [

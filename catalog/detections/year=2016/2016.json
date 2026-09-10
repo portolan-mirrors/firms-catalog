@@ -57,7 +57,8 @@
       "title": "2016 detections, GeoParquet 2.0",
       "roles": [
         "data"
-      ]
+      ],
+      "file:size": 438129984
     }
   },
   "links": [

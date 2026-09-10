@@ -56,7 +56,8 @@
       "title": "2003 detections, GeoParquet 2.0",
       "roles": [
         "data"
-      ]
+      ],
+      "file:size": 81014506
     }
   },
   "links": [

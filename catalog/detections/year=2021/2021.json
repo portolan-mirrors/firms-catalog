@@ -60,7 +60,8 @@
       "title": "2021 detections, GeoParquet 2.0",
       "roles": [
         "data"
-      ]
+      ],
+      "file:size": 453696094
     }
   },
   "links": [

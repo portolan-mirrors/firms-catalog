@@ -60,7 +60,8 @@
       "title": "2020 detections, GeoParquet 2.0",
       "roles": [
         "data"
-      ]
+      ],
+      "file:size": 462717536
     },
     "pmtiles": {
       "href": "./fire-2020.pmtiles",
