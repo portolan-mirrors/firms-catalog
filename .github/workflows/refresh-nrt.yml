@@ -55,7 +55,6 @@ jobs:
           python3 tools/firms_aggregate.py --data ./staging/publish/detections \
             --out ./staging/agg --tiles ./staging/publish \
             --resolution 10 --levels 6
-          mv ./staging/publish/fire.pmtiles ./staging/publish/fire.pmtiles
 
       - name: Regenerate styles and collection metadata
         run: |

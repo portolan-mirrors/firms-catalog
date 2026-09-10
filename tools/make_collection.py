@@ -47,11 +47,37 @@ COLUMNS = [
 ]
 
 
+def widen_from_items(catalog_dir: Path, live: tuple) -> tuple:
+    """Union the staged extent with every published item's."""
+    minx, miny, maxx, maxy, t0, t1, n = live
+    for path in sorted(catalog_dir.glob("year=*/[0-9]*.json")):
+        try:
+            item = json.loads(path.read_text())
+        except (OSError, json.JSONDecodeError):
+            continue
+        bbox = item.get("bbox")
+        if bbox and len(bbox) == 4:
+            minx, miny = min(minx, bbox[0]), min(miny, bbox[1])
+            maxx, maxy = max(maxx, bbox[2]), max(maxy, bbox[3])
+        props = item.get("properties") or {}
+        for key, keep in (("start_datetime", min), ("end_datetime", max)):
+            raw = props.get(key)
+            if not raw:
+                continue
+            when = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+            if key == "start_datetime":
+                t0 = keep(t0, when.replace(tzinfo=None)) if t0 else when.replace(tzinfo=None)
+            else:
+                t1 = keep(t1, when.replace(tzinfo=None)) if t1 else when.replace(tzinfo=None)
+        n += props.get("table:row_count") or 0
+    return minx, miny, maxx, maxy, t0, t1, n
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--data", required=True, help="detections/ directory holding year=*/")
     ap.add_argument("--out", required=True, help="collection.json path")
-    ap.add_argument("--pmtiles", default="fire.pmtiles")
+    ap.add_argument("--pmtiles", default="fire-latest.pmtiles")
     ap.add_argument("--pmtiles-layers", default="aggregate,features")
     # Filenames only. Each asset title is read from the style's own "name", so
     # the name lives in one place instead of drifting between the two tools.
@@ -73,6 +99,18 @@ def main() -> int:
                min(acq_datetime), max(acq_datetime), count(*)
         FROM read_parquet([{glob_all}])""").fetchone()
     years = [int(f.parent.name.split("=")[1]) for f in files]
+
+    # Widen the extent to cover the published items.
+    #
+    # --data sees only what is staged locally, which in practice is the rolling
+    # window: the archive years are built and uploaded from CI and never land
+    # on this machine. Reporting that as the collection's extent told a client
+    # the dataset spans eight days and holds two million rows, when it spans
+    # twenty-seven years and holds six hundred million. The items are the
+    # authority here -- each carries its year's real bounds and row count, read
+    # from the Parquet footer.
+    minx, miny, maxx, maxy, t0, t1, n = widen_from_items(
+        Path(a.out).parent, (minx, miny, maxx, maxy, t0, t1, n))
     now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     iso = lambda d: d.strftime("%Y-%m-%dT%H:%M:%SZ")  # noqa: E731
 

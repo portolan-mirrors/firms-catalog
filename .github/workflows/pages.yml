@@ -3,7 +3,7 @@ name: pages
 # Publish apps/firms-preview to GitHub Pages.
 #
 # The app reads the PUBLISHED tiles by default, so the hosted copy needs no
-# configuration. Append ?tiles=./fire.pmtiles to point a local checkout at a
+# configuration. Append ?tiles=./fire-latest.pmtiles to point a local checkout at a
 # local build instead.
 
 on:

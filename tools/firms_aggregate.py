@@ -143,7 +143,9 @@ def main() -> int:
 
     if a.tiles:
         tiles = Path(a.tiles); tiles.mkdir(parents=True, exist_ok=True)
-        archive = tiles / "fire.pmtiles"
+        # Named for the period it covers, like every other archive. The
+        # rolling window was the only one whose name did not say.
+        archive = tiles / "fire-latest.pmtiles"
         print(f"[pyramid] aggregate bands + raw points from z{a.features_min_zoom}")
         run(["gpio", "pmtiles", "pyramid", str(combined), str(archive),
              "--levels", a.levels,

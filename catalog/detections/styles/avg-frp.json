@@ -4,7 +4,7 @@
   "sources": {
     "data": {
       "type": "vector",
-      "url": "pmtiles://../fire.pmtiles"
+      "url": "pmtiles://../fire-latest.pmtiles"
     }
   },
   "layers": [

@@ -10,7 +10,7 @@
   ],
   "id": "detections",
   "title": "Active Fire Detections (MODIS and VIIRS)",
-  "description": "Global satellite active fire and thermal anomaly detections from NASA FIRMS, as one year-partitioned GeoParquet 2.0 table of 1,956,503 rows covering 2026 to 2026. Carries MODIS (Terra and Aqua, 1 km) and VIIRS (Suomi-NPP, NOAA-20, NOAA-21, 375 m). Near-real-time rows are appended hourly and replaced by science-quality rows as NASA finalizes them; the `quality` column says which is which. Rows are ordered by month and then by a Hilbert index, so a reader prunes on both time and space. Read the [agent guide](AGENTS.md) before querying: `confidence` is encoded differently per instrument and `type` is NULL for all near-real-time rows.",
+  "description": "Global satellite active fire and thermal anomaly detections from NASA FIRMS, as one year-partitioned GeoParquet 2.0 table of 616,318,870 rows covering 2026 to 2026. Carries MODIS (Terra and Aqua, 1 km) and VIIRS (Suomi-NPP, NOAA-20, NOAA-21, 375 m). Near-real-time rows are appended hourly and replaced by science-quality rows as NASA finalizes them; the `quality` column says which is which. Rows are ordered by month and then by a Hilbert index, so a reader prunes on both time and space. Read the [agent guide](AGENTS.md) before querying: `confidence` is encoded differently per instrument and `type` is NULL for all near-real-time rows.",
   "license": "CC0-1.0",
   "keywords": [
     "fire",
@@ -23,7 +23,7 @@
     "FIRMS",
     "near real-time"
   ],
-  "updated": "2026-09-09T12:06:06Z",
+  "updated": "2026-09-10T11:37:41Z",
   "providers": [
     {
       "name": "NASA LANCE FIRMS",
@@ -46,18 +46,18 @@
     "spatial": {
       "bbox": [
         [
-          -175.6528,
-          -77.5293,
-          179.547,
-          75.0942
+          -179.995,
+          -89.6907,
+          179.9988,
+          87.4687
         ]
       ]
     },
     "temporal": {
       "interval": [
         [
-          "2026-09-01T00:01:00Z",
-          "2026-09-08T11:49:00Z"
+          "2000-11-01T00:13:00Z",
+          "2026-09-08T22:52:00Z"
         ]
       ]
     }
@@ -74,7 +74,7 @@
   "partition:file_count": 1,
   "partition:glob": "s3://portolan-mirrors/firms-catalog/detections/year=*/*.parquet",
   "table:primary_geometry": "geometry",
-  "table:row_count": 1956503,
+  "table:row_count": 616318870,
   "table:columns": [
     {
       "name": "geometry",
@@ -181,8 +181,8 @@
         "style",
         "default"
       ],
-      "file:size": 1475,
-      "file:checksum": "122012724a2ef1faea36e1c95b0993ce8c1f78575c8676f3c8f0d642b367b5c4f414"
+      "file:size": 2258,
+      "file:checksum": "12206d58c9bbb7b49c3d5d786eff85a296f350063172d33eb98d2c096c1012ce869c"
     },
     "style-avg-frp": {
       "href": "./styles/avg-frp.json",
@@ -191,11 +191,11 @@
       "roles": [
         "style"
       ],
-      "file:size": 1444,
-      "file:checksum": "12202c6ad19e8562c5f4d9b569e12ecebd898f255e1ff70b3cea4e7fc3d62d1bf815"
+      "file:size": 2264,
+      "file:checksum": "1220517c98920b8aa6632ec4e390207c78432dd1068a133a619cfcd4861b008e6aaf"
     },
     "pmtiles": {
-      "href": "./fire.pmtiles",
+      "href": "./fire-latest.pmtiles",
       "type": "application/vnd.pmtiles",
       "title": "Fire detections, aggregate bands plus raw points",
       "roles": [
@@ -257,7 +257,7 @@
     },
     {
       "rel": "pmtiles",
-      "href": "./fire.pmtiles",
+      "href": "./fire-latest.pmtiles",
       "type": "application/vnd.pmtiles",
       "title": "Fire detections, aggregate bands plus raw points",
       "pmtiles:layers": [

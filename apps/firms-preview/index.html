@@ -135,7 +135,7 @@
 maplibregl.addProtocol("pmtiles", new pmtiles.Protocol().tile);
 
 // Where the tiles live. Defaults to the published archive so the hosted app
-// works with no configuration; ?tiles=./fire.pmtiles points it at a local
+// works with no configuration; ?tiles=./fire-latest.pmtiles points it at a local
 // build for development.
 const BASE = "https://data.source.coop/portolan-mirrors/firms-catalog/detections";
 // Protomaps' OpenStreetMap basemap, hosted on the same origin as the data, so
@@ -151,7 +151,7 @@ const qs = new URLSearchParams(location.search);
 const DATASETS = {
   live: {
     label: "Last 7 days",
-    tiles: qs.get("tiles") || `${BASE}/fire.pmtiles`,
+    tiles: qs.get("tiles") || `${BASE}/fire-latest.pmtiles`,
     collection: `${BASE}/collection.json`,
   },
   "2020": {
