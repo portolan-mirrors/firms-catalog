@@ -28,6 +28,12 @@ from threading import Lock
 
 import duckdb
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from net import force_ipv4  # noqa: E402
+
+# FIRMS is dual-stack and CI has no IPv6 route; see tools/net.py.
+force_ipv4()
+
 API = "https://firms.modaps.eosdis.nasa.gov/api/area/csv"
 MAX_WINDOW = 5
 

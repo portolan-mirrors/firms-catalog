@@ -20,6 +20,10 @@ import duckdb
 
 sys.path.insert(0, str(Path(__file__).parent))
 from firms_fetch import normalize  # noqa: E402
+from net import force_ipv4  # noqa: E402
+
+# FIRMS is dual-stack and CI has no IPv6 route; see tools/net.py.
+force_ipv4()
 
 BULK = "https://firms.modaps.eosdis.nasa.gov/data/active_fire"
 

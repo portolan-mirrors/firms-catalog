@@ -16,6 +16,8 @@ TESTS = [
     "test_links.py",
     "test_publish.py",
     "test_upload_data.py",
+    "test_net.py",
+    "test_timeline_meta.py",
     "test_stac_valid.py",
     "test_conformance.py",
 ]
