@@ -2,6 +2,20 @@
 
 Status: design, approved in outline 2026-09-10. Written by AI; needs human review.
 
+## Scope: a second app, not a replacement
+
+This describes a **new explorer**, built to work across the whole record. The
+existing preview app at `apps/firms-preview/` stays, keeps being maintained,
+and is updated to consume the renamed archives described below. It remains the
+small, fast thing that answers "what is burning now"; the new app is the one
+that answers "how has this place burned over twenty-seven years".
+
+Keeping both is deliberate. The preview doubles as the catalog's `preview`
+link and its thumbnail source, it is the page a Portolan browser lands on, and
+it exercises the plain published styles. Folding it into a heavier application
+would lose all of that. The two share the archives and the metadata contracts
+below, and nothing else.
+
 ## The problem
 
 The current preview filters by a "days" slider whose meaning changes silently
@@ -69,11 +83,19 @@ size. The measurement removed the reason for the fallback design.
 Three archives, each owning one temporal band and exactly one bucket
 granularity. One is mounted at a time.
 
-| archive | cells | buckets | est. size | serves |
-|---|---|---|---|---|
-| `alltime.pmtiles` | r4 + r6 | 311 monthly (one per month since 2000-11), `count_YYYYMM` | ~8 MB | all time down to a calendar year |
-| `fire-<year>.pmtiles` | r6 + r8 | 366 daily, `count_MMDD` | ~65 MB | one calendar year |
-| `fire.pmtiles` | r6 + r10 + points | 7-8 daily, `count_YYYYMMDD` | ~107 MB | last seven days, raw detections |
+| archive | cells | buckets | raw points | est. size | serves |
+|---|---|---|---|---|---|
+| `alltime.pmtiles` | r4 + r6 | 311 monthly, `count_YYYYMM` | no | ~8 MB | all time down to a calendar year |
+| `fire-<year>.pmtiles` | r6 + r8 + points | 366 daily, `count_MMDD` | yes, z10+ | ~615 MB | one calendar year |
+| `fire-latest.pmtiles` | r6 + r10 + points | 7-8 daily, `count_YYYYMMDD` | yes, z10+ | ~107 MB | last seven days |
+
+### Renaming the rolling window
+
+`fire.pmtiles` becomes `fire-latest.pmtiles`. With per-year archives it is the
+only name that does not say which period it covers. The rename touches the
+collection's `pmtiles` asset, the `rel:pmtiles` link, the `pmtiles://` URL
+inside both generated styles, and the preview app, so it is a re-upload and a
+regeneration rather than a copy.
 
 One granularity per archive is a deliberate simplification. The existing
 `fire-2020-split.pmtiles` carries monthly on its coarse band and daily on its
@@ -81,13 +103,31 @@ fine band, which ties temporal resolution to *spatial* zoom — you cannot see
 daily bars while looking at a continent. Since r6-daily costs 2.9 MB, every
 band in a year archive carries daily and the coupling disappears.
 
+### Raw points in every year
+
+Today only the rolling window carries raw detections, in a `features` band at
+z10; every year archive is aggregate-only, so zooming into 2003 just yields
+bigger cells with nothing underneath. Year archives gain a `features` band so
+the explorer behaves the same at any depth in time.
+
+Measured from the rolling window — 1,915,961 detections producing 42.0 MB of
+point tiles, or 21.9 MB per million points:
+
+    2003   5.2M points   ~114 MB
+    2020  25.2M points   ~552 MB
+    all 27 years         ~11 GB
+
+A 552 MB archive is not a 552 MB download. PMTiles is range-requested, so a
+z10 view fetches a few hundred kilobytes whatever the file size. This is a
+storage and build-time cost, not a runtime one.
+
 ### Selecting the archive
 
 The timeline's **visible domain** selects the archive, not its selection. The
 rule is calendar-year containment, which is predictable and keeps exactly one
 source mounted:
 
-- domain contained in the last seven days -> `fire.pmtiles`
+- domain contained in the last seven days -> `fire-latest.pmtiles`
 - else domain contained in one calendar year -> `fire-<year>.pmtiles`
 - else -> `alltime.pmtiles`
 
@@ -181,6 +221,57 @@ property reads. Two things fix it.
 
 Budget: a full recompute at global zoom on `alltime` should stay under 150 ms.
 
+## Updating
+
+Rewrite cost is very uneven, and the measurements make the cheap path obvious.
+
+| archive | rewritten when | frequency | bytes rewritten |
+|---|---|---|---|
+| `alltime.pmtiles` | the current month's column changes | daily | ~8 MB |
+| `fire-latest.pmtiles` | NRT refresh | hourly | ~107 MB |
+| `fire-<current year>` | aggregates as data firms up | daily | ~65 MB |
+| `fire-<current year>` | points | weekly | ~615 MB |
+| `fire-<past year>` | never; immutable once complete | - | 0 |
+
+Because the all-time archive is only about 8 MB, it is rewritten whole every
+day and no incremental update machinery is needed for it. Past years are
+write-once: a completed year changes only if the upstream record is reprocessed
+or a sensor was missing when it was published. Steady state is therefore one
+small daily rewrite plus the hourly rolling window.
+
+The current year is the awkward case, because rebuilding it with points is
+~615 MB of upload. Its aggregates rebuild daily and its points weekly, which is
+acceptable because the last seven days of points are already served by
+`fire-latest.pmtiles`; the gap is only points between seven days and one week
+of staleness.
+
+### Credentials
+
+The hourly refresh cannot work with Source Cooperative's temporary STS
+credentials: they last about 54 minutes and the job runs every hour, so it only
+ever succeeds in the window following a manual login. Every scheduled run
+between logins fails. This needs permanent access keys (being obtained) or
+OIDC federation. Nothing else in this design is blocked on it, but "always the
+latest" is.
+
+### Reaching FIRMS from CI
+
+Both the backfill and the hourly refresh have failed with
+`<urlopen error [Errno 101] Network is unreachable>` against
+`firms.modaps.eosdis.nasa.gov`, sometimes for every window in a slice. The host
+is dual-stack (`198.118.194.34` and `2001:4d0:241a:40c0::34`) and GitHub
+runners generally have no IPv6 route, which fits. It is intermittent rather
+than constant, so retries help but do not cure it. The fetchers should force
+`AF_INET` rather than depend on fallback.
+
+### Uploading
+
+Publishing 2022 and 2023 failed after their data had been rebuilt, with HTTP
+524 on `UploadPart` — the CDN reporting an origin timeout. botocore's standard
+retry mode does not treat 524 as retryable, and the client had no retry
+configuration. Uploads now retry on gateway-class statuses and use 64 MB parts,
+which takes a 460 MB file from 58 parts to 8.
+
 ## Build pipeline
 
 New `tools/make_alltime.py`, following the measured recipe:
@@ -196,8 +287,17 @@ Each year is independent, so the archive can be built from the years published
 today and extended as the rest land; step 2 is a re-join, not a re-read.
 
 `tools/firms_aggregate.py` changes to emit daily buckets on every band of a
-year archive rather than monthly on the coarse band, and the per-year build
-gains the breaks and styles steps.
+year archive rather than monthly on the coarse band, to include a `features`
+band via `--include-features`, and to run the breaks and styles steps per
+year.
+
+The rename to `fire-latest.pmtiles` is a single pass over the collection
+asset, the `rel:pmtiles` link, both generated styles and the preview app,
+followed by a re-upload and a delete of the old key.
+
+The existing preview app is updated in the same pass: new archive names, and
+the year switcher fed from the per-year STAC items rather than a hardcoded
+list. It gains nothing else -- the timeline is the new app's.
 
 Note for any tool talking to Source Cooperative: its CDN answers 403 to the
 default Python user-agent, and a rejected client is indistinguishable from a
@@ -221,3 +321,6 @@ per-sensor or day/night breakdowns on the timeline (the map keeps its own
 filters). Cross-year daily resolution is out of scope for the reason given
 above, and should be revisited only if the map can render two year archives
 without double-drawing shared cells.
+
+Adding a timeline to the existing preview app is also out of scope. It keeps
+its simple day filter; the two apps share archives, not interface.
