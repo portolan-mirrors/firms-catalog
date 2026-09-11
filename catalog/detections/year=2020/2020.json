@@ -77,8 +77,8 @@
       "roles": [
         "style"
       ],
-      "file:size": 1439,
-      "file:checksum": "1220af681fcf3d72c22715d6a948617d66197381cf05a6c46720b6c3ec3cd8835a38"
+      "file:size": 2720,
+      "file:checksum": "1220b5a0181e9e00a89da8e23d5ab0ed0845f70ad812dbc4a17657e3cd5c9bd55a72"
     },
     "style-default": {
       "href": "./styles/default.json",
@@ -87,8 +87,8 @@
       "roles": [
         "style"
       ],
-      "file:size": 1449,
-      "file:checksum": "12202aed9735d6d6043d96abe0fd9d6009d39274f21a3cae0ecae46012698688f2c1"
+      "file:size": 2748,
+      "file:checksum": "1220dbce53180b4cee9e564321baa23e027dd93ee8c16747454291ba67672073d9af"
     }
   },
   "links": [

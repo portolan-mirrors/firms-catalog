@@ -54,11 +54,25 @@ jobs:
         run: |
           python3 tools/firms_aggregate.py --data ./staging/publish/detections \
             --out ./staging/agg --tiles ./staging/publish \
-            --resolution 10 --levels 6
+            --resolution 10 --levels 6,4
 
-      - name: Regenerate styles and collection metadata
+      # Breaks come before styles because the styles are generated FROM them.
+      # The refresh rebuilds the archive from scratch every hour, so anything
+      # not regenerated here is lost: skipping this step republished an archive
+      # with no firms:breaks at all, and every viewer silently fell back to a
+      # fixed ramp tuned for different data.
+      - name: Class breaks and styles
         run: |
-          python3 tools/make_styles.py --out ./staging/publish/styles --points-min-zoom 10
+          python3 tools/make_breaks.py ./staging/publish/fire-latest.pmtiles \
+            --band "10:./staging/agg/cells.parquet" \
+            --band "6:./staging/agg/cells_r6.parquet" \
+            --band "4:./staging/agg/cells_r4.parquet"
+          python3 tools/make_styles.py ./staging/publish/fire-latest.pmtiles \
+            --out ./staging/publish/styles --tiles ../fire-latest.pmtiles \
+            --suffix ", last 7 days"
+
+      - name: Regenerate collection metadata
+        run: |
           cp catalog/detections/detections.thumb.jpg ./staging/publish/ || true
           python3 tools/make_collection.py --data ./staging/publish/detections \
             --out catalog/detections/collection.json

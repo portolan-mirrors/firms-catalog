@@ -4,7 +4,7 @@
   "sources": {
     "data": {
       "type": "vector",
-      "url": "pmtiles://../fire-2020.pmtiles"
+      "url": "pmtiles://./fire-2020.pmtiles"
     }
   },
   "layers": [
@@ -30,20 +30,20 @@
               0
             ],
             "#2c3d5a",
-            233,
+            2820,
             "#3f6d8f",
-            1258,
+            18829,
             "#59a1a0",
-            4977,
+            75139,
             "#a8c268",
-            10737,
+            187042,
             "#f2b134",
-            16374,
+            351777,
             "#e8722c",
-            20884,
+            431256,
             "#d1382a"
           ],
-          5,
+          6,
           [
             "step",
             [
@@ -55,22 +55,93 @@
               0
             ],
             "#2c3d5a",
-            31,
+            379,
             "#3f6d8f",
-            164,
+            2176,
             "#59a1a0",
-            569,
+            8713,
             "#a8c268",
-            928,
+            19065,
             "#f2b134",
-            1409,
+            29330,
             "#e8722c",
-            2289,
+            37022,
+            "#d1382a"
+          ],
+          8,
+          [
+            "step",
+            [
+              "coalesce",
+              [
+                "get",
+                "count"
+              ],
+              0
+            ],
+            "#2c3d5a",
+            48,
+            "#3f6d8f",
+            268,
+            "#59a1a0",
+            987,
+            "#a8c268",
+            1642,
+            "#f2b134",
+            2501,
+            "#e8722c",
+            4021,
             "#d1382a"
           ]
         ],
         "fill-opacity": 0.78,
         "fill-outline-color": "rgba(0,0,0,0.2)"
+      },
+      "maxzoom": 10
+    },
+    {
+      "id": "fire-points",
+      "type": "circle",
+      "source": "data",
+      "source-layer": "features",
+      "minzoom": 10,
+      "paint": {
+        "circle-color": [
+          "step",
+          [
+            "coalesce",
+            [
+              "get",
+              "frp"
+            ],
+            0
+          ],
+          "#4a5bd4",
+          10,
+          "#39a0a8",
+          50,
+          "#c9cf4a",
+          200,
+          "#f2b134",
+          500,
+          "#e8722c",
+          1000,
+          "#d1382a"
+        ],
+        "circle-radius": [
+          "interpolate",
+          [
+            "linear"
+          ],
+          [
+            "zoom"
+          ],
+          10,
+          2.2,
+          14,
+          6
+        ],
+        "circle-opacity": 0.9
       }
     }
   ]
