@@ -402,11 +402,41 @@ function currentStops(cols) {
 // tile, so coalesce to at most one update per frame. Note this sets paint
 // properties only: a setFilter would re-layout the layer, which is far more
 // expensive and visibly janky mid-drag.
-let _pending = false;
-function applySelection() {
-  if (_pending) return;
-  _pending = true;
-  requestAnimationFrame(() => { _pending = false; applyNow(); });
+// Repainting the map costs O(cells x selected buckets) inside MapLibre's
+// expression evaluator, and a drag emits one change per pointer move. At a
+// wide selection that produced frames of up to 298 ms and the map crawled
+// through the backlog long after the pointer stopped.
+//
+// Precomputing the sums in JS and feeding them through feature-state was
+// measured and was far worse -- 16 s for the same drag -- because setting
+// state on every cached cell every frame costs more than the expression it
+// replaces. So the map is throttled instead of made cleverer: at most one
+// repaint per MAP_THROTTLE_MS while a gesture is live, and always one final
+// repaint when it ends, which is the only frame the user waits to see. The
+// timeline keeps redrawing every frame, so the gesture still feels immediate.
+const MAP_THROTTLE_MS = 110;
+let _pending = false, _lastPaint = 0, _trailing = null;
+function applySelection(dragging) {
+  if (!dragging) {
+    if (_trailing) { clearTimeout(_trailing); _trailing = null; }
+    if (_pending) return;
+    _pending = true;
+    requestAnimationFrame(() => { _pending = false; _lastPaint = performance.now(); applyNow(); });
+    return;
+  }
+  const since = performance.now() - _lastPaint;
+  if (since >= MAP_THROTTLE_MS) {
+    if (_pending) return;
+    _pending = true;
+    requestAnimationFrame(() => { _pending = false; _lastPaint = performance.now(); applyNow(); });
+    return;
+  }
+  // Mid-throttle: make sure the last position still lands even if no further
+  // event arrives, or releasing the pointer would leave the map a frame stale.
+  if (_trailing) return;
+  _trailing = setTimeout(() => {
+    _trailing = null; _lastPaint = performance.now(); applyNow();
+  }, MAP_THROTTLE_MS - since);
 }
 
 function applyNow() {
@@ -587,6 +617,7 @@ function computeHistogram() {
   let max = 0;
   for (let i = 0; i < total.length; i++)
     if (total[i]) { buckets[S.axis.keyAt(i)] = total[i]; if (total[i] > max) max = total[i]; }
+  _histoDirty = false;
   tl.ramp = timelineRamp(max);
   tl.setValues(buckets);
   const ms = performance.now() - t0;
@@ -632,6 +663,7 @@ function histogramFromPoints(t0) {
     if (v > max) max = v;
     inView++;
   }
+  _histoDirty = false;
   tl.ramp = timelineRamp(max);
   tl.setValues(buckets);
   const ms = performance.now() - t0;
@@ -645,14 +677,28 @@ function histogramFromPoints(t0) {
 // truthful "everything has arrived" signal, but it is not relied on: a source
 // that fails keeps the map from reaching `loaded` and idle then never fires,
 // so moveend and sourcedata carry the readout on their own.
+// The histogram counts every bucket, so it does not depend on the selection.
+// But changing the selection repaints, a repaint fires idle, and idle used to
+// recompute unconditionally -- so every drag of a handle paid for a rescan
+// that could not change the answer. Only a new viewport or newly arrived tiles
+// can, so only those mark it dirty.
 let _histoPending = false;
+let _histoDirty = true;
 function scheduleHistogram() {
+  _histoDirty = true;
   if (_histoPending) return;
   _histoPending = true;
   setTimeout(() => { _histoPending = false; computeHistogram(); }, 180);
 }
+function histogramIfDirty() { if (_histoDirty) scheduleHistogram(); }
+// A handle for tests and the console. The app is an ES module, so nothing in
+// it is reachable otherwise, and `map` in the console resolves to the DOM div
+// whose id shadows it. Read-only by convention; nothing in the app uses it.
+window.__explorer = {get map() { return map; }, get tl() { return tl; },
+                     get state() { return S; }};
+
 map.on("moveend", scheduleHistogram);
-map.on("idle", scheduleHistogram);
+map.on("idle", histogramIfDirty);
 map.on("sourcedata", e => { if (e.sourceId === SRC && e.isSourceLoaded) scheduleHistogram(); });
 
 map.on("move", () => {
@@ -673,7 +719,7 @@ window._explorer = S;
 
 function onTimeline(e) {
   S.sel = {...e.selection};
-  applySelection();
+  applySelection(e.dragging);
   const a = el("selfrom"), b = el("selto");
   if (e.keys && S.axis) {
     const u = S.axis.unit;

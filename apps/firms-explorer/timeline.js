@@ -713,6 +713,10 @@ export class Timeline {
       domain: this.domain.slice(),
       selection: {...this.selection},
       keys: this.selectionKeys(),
+      // True while a pointer gesture is still in flight. A listener doing
+      // expensive work per event can throttle on this and catch up on the
+      // final event, which is the only one the user waits to see.
+      dragging: this._drag != null || this._pinch != null,
     });
   }
 
