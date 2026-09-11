@@ -74,7 +74,7 @@
     </div>
     <div class="sec">
       <div class="row"><span>zoom</span><b id="z">–</b></div>
-      <div class="row"><span>cells in view</span><b id="ncells">–</b></div>
+      <div class="row"><span id="nlabel">cells in view</span><b id="ncells">–</b></div>
       <div class="row"><span>histogram</span><b id="ms">–</b></div>
     </div>
   </div>
@@ -143,6 +143,26 @@ const ARCHIVES = {
 // in ascending numeric order however they were inserted, so Object.keys()
 // would put 2000 above the all-time archive.
 const ORDER = ["alltime", "latest"];
+const UNIT_ADVERB = {day: "daily", month: "monthly"};
+
+// Point the app at an archive that is not in the catalog yet:
+//
+//   ?add=2020|./fire-2020.pmtiles          (repeatable)
+//
+// Year archives are discovered from their STAC items, so a year appears only
+// once its tileset is published. This is how you drive one before that, and it
+// is why the dev server has to be the range-capable serve.py -- python's
+// http.server answers 200 to a Range request and hands back the whole file,
+// which leaves PMTiles parsing megabytes of the wrong bytes and rendering
+// nothing, with no error to explain it.
+for (const spec of qs.getAll("add")) {
+  const i = spec.indexOf("|");
+  if (i < 1) continue;
+  const id = spec.slice(0, i), url = spec.slice(i + 1);
+  ARCHIVES[id] = {label: `${id} · daily (local)`, url,
+                  presets: [["7d", 7], ["30d", 30], ["90d", 90], ["all", null]]};
+  if (!ORDER.includes(id)) ORDER.push(id);
+}
 
 let S = {
   id: null, axis: null, meta: null, columns: new Set(), declared: true,
@@ -313,7 +333,9 @@ async function mount(id) {
 function showNotes(arc, read) {
   el("hdsub").textContent =
     `${formatKey(S.axis.min, S.axis.unit)} → ${formatKey(S.axis.max, S.axis.unit)} · ` +
-    `${S.axis.unit}ly buckets`;
+    // "day" + "ly" is "dayly". English adverbs are not a string concat, and
+    // the unit set is small enough to just name them.
+    `${UNIT_ADVERB[S.axis.unit] || S.axis.unit} buckets`;
   const msgs = [];
   if (!read.declared)
     msgs.push(`${arc.label} declares no firms:timeline; the axis was ` +
@@ -424,8 +446,12 @@ function renderLegend(stops, scale, nsel) {
            `${fmt(st[0])}${hi ? `–${fmt(hi)}` : "+"}</div>`;
   }).join("");
   const band = bandAt(S.bands, map.getZoom());
-  el("lgtitle").textContent = band ? `Detections · r${band.level} cells`
-                                   : "Detections";
+  // The points band's level is the string "features", not a number, so it is
+  // neither an "r" resolution nor made of cells.
+  el("lgtitle").textContent =
+    !band ? "Detections"
+    : band.layer === PT_LAYER ? "Detections · individual"
+    : `Detections · r${band.level} cells`;
   const n = el("lgnote");
   if (!S.breaks) {
     n.textContent = "This archive ships no firms:breaks; the built-in ramp is used.";
@@ -524,6 +550,14 @@ function computeHistogram() {
   if (!map.areTilesLoaded() && _histoWaits < 5) { _histoWaits++; scheduleHistogram(); return; }
   _histoWaits = 0;
   const t0 = performance.now();
+
+  // Past the points threshold there are no aggregate cells to sum, and the
+  // timeline went blank exactly when you had zoomed in to study something.
+  // The points carry their own acq_date, so bucket those instead: it is the
+  // same question answered from the rows rather than the rollup, and it is
+  // strictly more accurate, being the detections actually in view.
+  if (map.getZoom() >= S.ptsMinZoom) { histogramFromPoints(t0); return; }
+
   let feats;
   try {
     feats = map.querySourceFeatures(SRC, {sourceLayer: AGG_LAYER});
@@ -558,9 +592,53 @@ function computeHistogram() {
   const ms = performance.now() - t0;
   el("ms").textContent = `${ms.toFixed(0)} ms`;
   el("ncells").textContent = inView.toLocaleString();
+  el("nlabel").textContent = "cells in view";
   window._lastHistogram = {ms, cells: inView, scanned: seen.size,
                            cached: S.cells.size,
                            total: Object.values(buckets).reduce((a, x) => a + x, 0)};
+}
+
+/**
+ * The same histogram, counted from raw detections rather than cells.
+ *
+ * Points are already clipped to their tile and carry no cell id to dedupe on,
+ * so a detection on a tile seam can be counted twice. That is a rounding error
+ * against thousands of points and not worth an index to avoid.
+ */
+function histogramFromPoints(t0) {
+  let feats;
+  try {
+    feats = map.querySourceFeatures(SRC, {sourceLayer: PT_LAYER});
+  } catch (e) {
+    console.warn("point query failed", e);
+    return;
+  }
+  const b = map.getBounds();
+  const w = b.getWest(), e = b.getEast(), s = b.getSouth(), n = b.getNorth();
+  const monthly = S.axis.unit === "month";
+  const buckets = {};
+  let inView = 0, max = 0;
+  for (const f of feats) {
+    const c = f.geometry && f.geometry.coordinates;
+    if (!c) continue;
+    if (c[1] < s || c[1] > n || !lngOverlaps(c[0], c[0], w, e)) continue;
+    const d = f.properties.acq_date;
+    if (!d) continue;
+    // "2020-05-06" -> "20200506", or "202005" on a monthly axis.
+    const key = monthly ? d.slice(0, 7).replace("-", "")
+                        : d.replace(/-/g, "");
+    const v = (buckets[key] || 0) + 1;
+    buckets[key] = v;
+    if (v > max) max = v;
+    inView++;
+  }
+  tl.ramp = timelineRamp(max);
+  tl.setValues(buckets);
+  const ms = performance.now() - t0;
+  el("ms").textContent = `${ms.toFixed(0)} ms`;
+  el("ncells").textContent = inView.toLocaleString();
+  el("nlabel").textContent = "points in view";
+  window._lastHistogram = {ms, points: inView, mode: "points"};
 }
 
 // Recompute on settle, never on move. `idle` is bound because it is the
