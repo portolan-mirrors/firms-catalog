@@ -1,0 +1,127 @@
+name: build-year-archives
+
+# Build and publish one PMTiles archive per calendar year.
+#
+# A finished year never changes, so each archive is built once and then left
+# alone. The work is heavy -- roughly a gigabyte of Parquet in and 1.3 GB of
+# tiles out per year, about 3 GB of peak disk -- which is why it runs here and
+# not on anyone's laptop.
+#
+# No FIRMS key is needed: this reads the published Parquet over HTTP. It does
+# need Source Cooperative credentials to upload, and those are short-lived
+# tokens, so a long matrix will outlive them. Run it in batches and refresh the
+# secrets between, or the later years fail on the upload step having done all
+# the work.
+
+on:
+  workflow_dispatch:
+    inputs:
+      years:
+        description: 'Years to build, comma separated, e.g. 2018,2019'
+        required: true
+      dry_run:
+        description: 'Build and validate, but do not upload'
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  year:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    strategy:
+      # Two at a time. The limit is upload bandwidth and disk, not the FIRMS
+      # budget, which this workflow never touches.
+      max-parallel: 2
+      fail-fast: false
+      matrix:
+        year: ${{ fromJson(format('[{0}]', inputs.years)) }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Free up disk
+        run: |
+          # A year peaks near 3 GB across the Parquet, the pivot staging file
+          # and the archive. The hosted image ships several gigabytes of
+          # toolchains this job will never use.
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc || true
+          df -h / | tail -1
+
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+
+      - name: Install the toolchain
+        run: |
+          set -euo pipefail
+          pip install --quiet duckdb boto3 \
+            'git+https://github.com/geoparquet/geoparquet-io.git@main'
+          # gpio shells out to tippecanoe and reads PMTiles with the pmtiles
+          # CLI; neither is a Python dependency.
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq build-essential libsqlite3-dev zlib1g-dev
+          git clone -q --depth 1 https://github.com/felt/tippecanoe /tmp/tippecanoe
+          make -s -C /tmp/tippecanoe -j"$(nproc)"
+          sudo make -s -C /tmp/tippecanoe install
+          curl -sSL https://github.com/protomaps/go-pmtiles/releases/latest/download/go-pmtiles_Linux_x86_64.tar.gz \
+            | sudo tar -xz -C /usr/local/bin pmtiles
+          tippecanoe --version
+          pmtiles version
+
+      - name: Fetch year=${{ matrix.year }}
+        run: |
+          set -euo pipefail
+          mkdir -p staging/publish/detections/year=${{ matrix.year }}
+          # Source Cooperative's CDN answers 403 to an unnamed client.
+          curl -sSfL --retry 5 --retry-all-errors \
+            -H 'User-Agent: firms-catalog-ci/1.0' \
+            -o staging/publish/detections/year=${{ matrix.year }}/detections.parquet \
+            "https://data.source.coop/portolan-mirrors/firms-catalog/detections/year=${{ matrix.year }}/detections.parquet"
+          ls -la staging/publish/detections/year=${{ matrix.year }}/
+
+      - name: Build the archive, its breaks and its styles
+        env:
+          DATA: ./staging/publish/detections
+          WORK: ./staging/work
+          TILES: ./staging/publish/detections/year=${{ matrix.year }}
+          CATALOG: ./catalog/detections/year=${{ matrix.year }}
+        run: bash tools/build_year.sh ${{ matrix.year }}
+
+      - name: Check the archive declares what a viewer needs
+        run: |
+          set -euo pipefail
+          python3 - <<'EOF'
+          import json, os, subprocess, sys
+          year = os.environ["YEAR"]
+          path = f"./staging/publish/detections/year={year}/fire-{year}.pmtiles"
+          raw = subprocess.run(["pmtiles", "show", "--metadata", path],
+                               capture_output=True, text=True, check=True).stdout
+          md = json.loads(raw[raw.index("{"):])
+          missing = [k for k in ("firms:timeline", "firms:breaks", "gpio:pyramid")
+                     if k not in md]
+          if missing:
+              # Re-tiling after generating breaks silently drops them, and an
+              # archive published without them makes every viewer fall back to
+              # a ramp tuned for different data. Fail here instead.
+              sys.exit(f"{path} is missing {missing}")
+          print(f"{path}: timeline={md['firms:timeline']['buckets']} buckets, "
+                f"breaks={sorted(md['firms:breaks'])}")
+          EOF
+        env:
+          YEAR: ${{ matrix.year }}
+
+      - name: Drop the source Parquet before uploading
+        run: |
+          # It is already published; keeping it would re-upload a gigabyte and
+          # the allow-list would happily let it through.
+          rm -f ./staging/publish/detections/year=${{ matrix.year }}/detections.parquet
+          df -h / | tail -1
+
+      - name: Upload
+        if: ${{ !inputs.dry_run }}
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.SOURCE_COOP_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SOURCE_COOP_SECRET_ACCESS_KEY }}
+          AWS_SESSION_TOKEN: ${{ secrets.SOURCE_COOP_SESSION_TOKEN }}
+        run: python3 tools/upload_data.py --confirm --data-dir ./staging/publish
