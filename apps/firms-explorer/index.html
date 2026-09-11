@@ -120,6 +120,7 @@ import {Timeline, makeAxis, formatKey, keyToISO, isoToKey, COUNT_RAMP}
   from "./timeline.js";
 import {bandAt, chooseArchive, keyDayRange, parseJSONish, pointsMinZoom,
         pyramid, shippedStops, timelineFromMetadata} from "./archives.js";
+import {Stats} from "./stats.js";
 
 maplibregl.addProtocol("pmtiles", new pmtiles.Protocol().tile);
 
@@ -357,6 +358,8 @@ async function mount(id, carry) {
   // while the timeline shows a selection that is really there.
   syncInputs();
   if (carry) applyCarry(carry);
+
+  if (id === "alltime") openStats();
 
   el("nb").textContent =
     `${S.axis.count} ${S.axis.unit}${S.axis.count === 1 ? "" : "s"}`;
@@ -630,6 +633,15 @@ function computeHistogram() {
   _histoWaits = 0;
   const t0 = performance.now();
 
+  // The sidecar answers the same question without decoding a tile, at the
+  // full r6 grid rather than whatever the current band happens to be. Only
+  // for the all-time archive: a year's daily buckets already fit its tiles.
+  if (S.id === "alltime" && STATS && STATS.ready &&
+      map.getZoom() < (S.ptsMinZoom || Infinity)) {
+    histogramFromStats(t0);
+    return;
+  }
+
   // Past the points threshold there are no aggregate cells to sum, and the
   // timeline went blank exactly when you had zoomed in to study something.
   // The points carry their own acq_date, so bucket those instead: it is the
@@ -676,6 +688,24 @@ function computeHistogram() {
   window._lastHistogram = {ms, cells: inView, scanned: seen.size,
                            cached: S.cells.size,
                            total: Object.values(buckets).reduce((a, x) => a + x, 0)};
+}
+
+/** The same histogram, read from the stats sidecar instead of the tiles. */
+function histogramFromStats(t0) {
+  const b = map.getBounds();
+  const {buckets, cells} = STATS.histogram(
+    b.getWest(), b.getSouth(), b.getEast(), b.getNorth(), lngOverlaps);
+  let max = 0;
+  for (const k in buckets) if (buckets[k] > max) max = buckets[k];
+  _histoDirty = false;
+  tl.ramp = timelineRamp(max);
+  tl.setValues(buckets);
+  const ms = performance.now() - t0;
+  el("ms").textContent = `${ms.toFixed(0)} ms`;
+  el("ncells").textContent = cells.toLocaleString();
+  el("nlabel").textContent = STATS.pending
+    ? `cells in view · ${STATS.pending} chunk(s) loading` : "cells in view";
+  window._lastHistogram = {ms, cells, mode: "stats", pending: STATS.pending};
 }
 
 /**
@@ -896,6 +926,27 @@ function considerSwitch(d, dragging, overflow, overflowDays) {
 function autoSwitchOn() {
   const c = el("autoswitch");
   return !c || c.checked;
+}
+
+// The all-time timeline reads its counts from a sidecar rather than from the
+// tiles. Those two want opposite things from one archive -- every bucket over
+// a coarse grid versus fine cells and one selection -- and serving both from
+// the tileset is why the zoomed-out map is r4. The sidecar carries no geometry
+// and covers the full r6 grid for under two megabytes.
+let STATS = null;
+function openStats() {
+  if (STATS) return STATS;
+  // ?stats=… points at a local build, the way ?add= does for archives.
+  STATS = new Stats(qs.get("stats") || `${BASE}/stats`);
+  STATS.open(() => {
+    // Each chunk that lands widens the axis, so redraw as they arrive rather
+    // than waiting for all four.
+    if (S.id === "alltime") { _histoDirty = true; computeHistogram(); }
+  }).catch(e => {
+    console.warn("stats sidecar unavailable; falling back to the tiles", e);
+    STATS = null;
+  });
+  return STATS;
 }
 
 // The rolling window's own extent, once it has been read. Before that it is
