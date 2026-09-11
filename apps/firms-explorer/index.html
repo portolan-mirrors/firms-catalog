@@ -170,12 +170,14 @@ const UNIT_ADVERB = {day: "daily", month: "monthly"};
 // http.server answers 200 to a Range request and hands back the whole file,
 // which leaves PMTiles parsing megabytes of the wrong bytes and rendering
 // nothing, with no error to explain it.
+const OVERRIDDEN = new Set();
 for (const spec of qs.getAll("add")) {
   const i = spec.indexOf("|");
   if (i < 1) continue;
   const id = spec.slice(0, i), url = spec.slice(i + 1);
   ARCHIVES[id] = {label: `${id} · daily (local)`, url,
                   presets: [["7d", 7], ["30d", 30], ["90d", 90], ["all", null]]};
+  OVERRIDDEN.add(id);
   if (!ORDER.includes(id)) ORDER.push(id);
 }
 
@@ -239,6 +241,10 @@ async function discoverYears() {
   }));
   // Newest first: the recent years are the ones anyone reaches for.
   for (const y of found.filter(Boolean).sort((a, b) => b.id.localeCompare(a.id))) {
+    // An ?add= override wins. Otherwise publishing a year silently redirects a
+    // local build to the remote copy and you spend an afternoon debugging the
+    // wrong file -- which is exactly what happened with 2020.
+    if (OVERRIDDEN.has(y.id)) continue;
     ARCHIVES[y.id] = y;
     ORDER.push(y.id);
   }
@@ -290,13 +296,13 @@ async function readArchive(url) {
 async function mount(id, carry) {
   const arc = ARCHIVES[id];
   if (!arc) return;
-  for (const l of [PTS, AGG]) if (map.getLayer(l)) map.removeLayer(l);
-  if (map.getSource(SRC)) map.removeSource(SRC);
-  S.cells.clear();
-  S.id = id;
   el("archive").value = id;
   el("hdsub").textContent = "reading " + arc.label + "…";
 
+  // Read the new archive BEFORE tearing down the old one. Removing the source
+  // first blanks the map for the whole network round trip -- a second or more
+  // on a cold archive -- and a switch that is triggered by zooming should not
+  // look like something broke.
   let read;
   try {
     read = await readArchive(arc.url);
@@ -316,6 +322,11 @@ async function mount(id, carry) {
                  "columns; there is no axis to draw", arc.url);
     return;
   }
+  // The new archive is readable, so the old one can go.
+  for (const l of [PTS, AGG]) if (map.getLayer(l)) map.removeLayer(l);
+  if (map.getSource(SRC)) map.removeSource(SRC);
+  S.cells.clear();
+  S.id = id;
   S.available[id] = true;
   Object.assign(S, read);
   S.axis = makeAxis(read.meta);
@@ -445,7 +456,7 @@ function currentStops(cols) {
 // repaint per MAP_THROTTLE_MS while a gesture is live, and always one final
 // repaint when it ends, which is the only frame the user waits to see. The
 // timeline keeps redrawing every frame, so the gesture still feels immediate.
-const MAP_THROTTLE_MS = 110;
+const MAP_THROTTLE_MS = 60;
 let _pending = false, _lastPaint = 0, _trailing = null;
 function applySelection(dragging) {
   if (!dragging) {
