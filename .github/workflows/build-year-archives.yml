@@ -64,7 +64,14 @@ jobs:
           git clone -q --depth 1 https://github.com/felt/tippecanoe /tmp/tippecanoe
           make -s -C /tmp/tippecanoe -j"$(nproc)"
           sudo make -s -C /tmp/tippecanoe install
-          curl -sSL https://github.com/protomaps/go-pmtiles/releases/latest/download/go-pmtiles_Linux_x86_64.tar.gz \
+          # The release assets carry the version in their name, so there is no
+          # stable "latest" filename. Resolve the tag, then build the URL --
+          # guessing it returns an HTML 404 page, which tar reports only as
+          # "gzip: stdin: not in gzip format".
+          PMT=$(curl -sSf https://api.github.com/repos/protomaps/go-pmtiles/releases/latest \
+                | python3 -c 'import json,sys; print(json.load(sys.stdin)["tag_name"].lstrip("v"))')
+          curl -sSfL --retry 3 \
+            "https://github.com/protomaps/go-pmtiles/releases/download/v$PMT/go-pmtiles_${PMT}_Linux_x86_64.tar.gz" \
             | sudo tar -xz -C /usr/local/bin pmtiles
           tippecanoe --version
           pmtiles version
