@@ -60,6 +60,9 @@
  #pop{position:absolute;right:10px;top:10px;width:212px;background:var(--panel);
    border:1px solid var(--line);border-radius:11px;padding:10px 12px;z-index:3;display:none}
  #pop .x{float:right;cursor:pointer;color:var(--dim)}
+  .auto{display:inline-flex;align-items:center;gap:4px;color:var(--dim);
+        font-size:11px;cursor:pointer;user-select:none}
+  .auto input{accent-color:var(--acc);cursor:pointer;margin:0}
 </style></head><body>
 
 <div class="stage">
@@ -87,6 +90,9 @@
   <div class="bar">
     <span class="grp">Archive</span>
     <select id="archive"></select>
+    <label class="auto" title="Swap archives as the timeline zooms in and out">
+      <input type="checkbox" id="autoswitch" checked> auto
+    </label>
     <button class="hint" id="fits"></button>
     <span class="grp">Span</span>
     <div class="seg" id="presets"></div>
@@ -112,8 +118,8 @@
 <script type="module">
 import {Timeline, makeAxis, formatKey, keyToISO, isoToKey, COUNT_RAMP}
   from "./timeline.js";
-import {bandAt, chooseArchive, parseJSONish, pointsMinZoom, pyramid,
-        shippedStops, timelineFromMetadata} from "./archives.js";
+import {bandAt, chooseArchive, keyDayRange, parseJSONish, pointsMinZoom,
+        pyramid, shippedStops, timelineFromMetadata} from "./archives.js";
 
 maplibregl.addProtocol("pmtiles", new pmtiles.Protocol().tile);
 
@@ -128,6 +134,15 @@ const BASEMAP = "https://data.source.coop/protomaps/openstreetmap/tiles/v3.pmtil
 
 const SRC = "fire", AGG = "agg", PTS = "pts";
 const AGG_LAYER = "aggregate", PT_LAYER = "features";
+
+// Fire radiative power, in megawatts. Taken from the preview app's frp ramp so
+// the two apps agree about what a hot detection looks like. Individual
+// detections are coloured by this rather than by the cell-count breaks, which
+// describe a quantity that is not on screen once the cells are gone.
+const FRP_RAMP = [
+  [0, "#4a5bd4"], [10, "#39a0a8"], [50, "#c9cf4a"], [200, "#f2b134"],
+  [500, "#e8722c"], [1000, "#d1382a"],
+];
 const el = id => document.getElementById(id);
 
 // The two archives with no STAC item of their own. Every year comes from the
@@ -264,7 +279,15 @@ async function readArchive(url) {
   };
 }
 
-async function mount(id) {
+/**
+ * Mount an archive, optionally landing on a given window of real time.
+ *
+ * `carry` is {view:[d0,d1], sel:[d0,d1]} in YYYYMMDD. Switching archives means
+ * switching bucket units, so state cannot be carried as bucket indices: what
+ * is bucket 40 of a monthly axis is bucket 1,200 of a daily one. Dates survive
+ * the change; indices do not.
+ */
+async function mount(id, carry) {
   const arc = ARCHIVES[id];
   if (!arc) return;
   for (const l of [PTS, AGG]) if (map.getLayer(l)) map.removeLayer(l);
@@ -308,12 +331,21 @@ async function mount(id) {
   if (read.ptsMinZoom !== Infinity)
     map.addLayer({id: PTS, type: "circle", source: SRC, "source-layer": PT_LAYER,
       paint: {"circle-radius": ["interpolate", ["linear"], ["zoom"], 9, 1.6, 12, 3, 15, 5.5],
-              "circle-color": "#f2b134", "circle-opacity": .85}});
+              "circle-color": ["step", ["coalesce", ["get", "frp"], 0]]
+                .concat(FRP_RAMP.flatMap(([t, c], i) => i === 0 ? [c] : [t, c])),
+              "circle-opacity": .85}});
 
   // Mount the axis with no values: the counts are viewport-dependent and are
   // not known until tiles have loaded. The bars fill in on the first idle.
   tl.metricLabel = "detections";
   tl.setSource(read.meta, {});
+  // Before applyCarry, not after. applyCarry emits, and the emit writes the
+  // selection into the date inputs -- but the inputs are still the PREVIOUS
+  // archive's type until syncInputs runs. Writing "2020-08-01" into an
+  // <input type="month"> is silently rejected, so the field ends up empty
+  // while the timeline shows a selection that is really there.
+  syncInputs();
+  if (carry) applyCarry(carry);
 
   el("nb").textContent =
     `${S.axis.count} ${S.axis.unit}${S.axis.count === 1 ? "" : "s"}`;
@@ -321,7 +353,6 @@ async function mount(id) {
   el("presets").innerHTML = (arc.presets || [["all", null]])
     .map(([lbl, n]) => `<button data-n="${n == null ? "" : n}">${lbl}</button>`)
     .join("");
-  syncInputs();
   renderArchiveControl();
   showNotes(arc, read);
   applySelection();
@@ -470,20 +501,27 @@ const fmt = n => n >= 1e6 ? (n / 1e6).toFixed(1) + "M"
   : n >= 1000 ? (n / 1000).toFixed(n >= 10000 ? 0 : 1) + "k" : String(n);
 
 function renderLegend(stops, scale, nsel) {
+  // Past the points threshold the cells are gone, and a count-per-cell ramp
+  // then labels a quantity nothing on screen has. Describe the points instead.
+  const band = bandAt(S.bands, map.getZoom());
+  const points = band && band.layer === PT_LAYER;
+  if (points) { stops = FRP_RAMP; }
   el("lg").innerHTML = stops.map((st, i) => {
     const hi = stops[i + 1] ? stops[i + 1][0] : null;
+    const unit = points ? " MW" : "";
     return `<div class="lgrow"><span class="sw" style="background:${st[1]}"></span>` +
-           `${fmt(st[0])}${hi ? `–${fmt(hi)}` : "+"}</div>`;
+           `${fmt(st[0])}${hi ? `–${fmt(hi)}` : "+"}${unit}</div>`;
   }).join("");
-  const band = bandAt(S.bands, map.getZoom());
   // The points band's level is the string "features", not a number, so it is
   // neither an "r" resolution nor made of cells.
   el("lgtitle").textContent =
     !band ? "Detections"
-    : band.layer === PT_LAYER ? "Detections · individual"
+    : points ? "Fire radiative power · MW"
     : `Detections · r${band.level} cells`;
   const n = el("lgnote");
-  if (!S.breaks) {
+  if (points) {
+    n.textContent = "Individual detections, coloured by radiative power.";
+  } else if (!S.breaks) {
     n.textContent = "This archive ships no firms:breaks; the built-in ramp is used.";
   } else if (scale === 1) {
     n.textContent = "Shipped data breaks, whole record.";
@@ -725,8 +763,12 @@ function onTimeline(e) {
     const u = S.axis.unit;
     // Editing is suppressed while the drag that caused the change is live:
     // writing to an <input> the user is typing in fights them for the caret.
-    if (editing !== a) a.value = keyToISO(e.keys.from, u);
-    if (editing !== b) b.value = keyToISO(e.keys.to, u);
+    // Ask the DOM what has focus rather than tracking it. A flag set on focus
+    // and cleared on blur goes permanently stale the moment a blur is missed
+    // -- switching archive while a field is focused was enough -- and the date
+    // fields then never update again while the timeline moves under them.
+    if (document.activeElement !== a) a.value = keyToISO(e.keys.from, u);
+    if (document.activeElement !== b) b.value = keyToISO(e.keys.to, u);
     a.title = formatKey(e.keys.from, u);
     b.title = formatKey(e.keys.to, u);
   }
@@ -734,15 +776,21 @@ function onTimeline(e) {
   el("view").textContent = d && S.axis
     ? `${formatKey(d.from, S.axis.unit)} → ${formatKey(d.to, S.axis.unit)}` : "–";
   updateFitsHint(d);
+  considerSwitch(d, e.dragging, e.overflow, e.overflowDays);
 }
 
 /**
- * The spec's containment rule, offered rather than applied.
+ * The spec's containment rule, applied automatically unless the user turns it
+ * off. The spec left this as a suggestion; driving it automatically is what
+ * makes zooming through time feel like one continuous axis rather than a set
+ * of separate archives the user has to know about.
  *
  * The visible domain, not the selection, decides which archive can serve it.
  * Swapping the source out from under a wheel gesture would be startling, so
  * the rule is surfaced as a button and the choice stays the user's.
  */
+// The button is now only a fallback for when auto-switching is off, and a
+// signal of what is about to happen when it is on.
 function updateFitsHint(d) {
   const btn = el("fits");
   if (!d || !S.axis) { btn.style.display = "none"; return; }
@@ -755,8 +803,88 @@ function updateFitsHint(d) {
     return;
   }
   btn.style.display = "";
-  btn.textContent = `this view fits ${ARCHIVES[want].label} →`;
-  btn.onclick = () => mount(want);
+  btn.textContent = autoSwitchOn() ? `switching to ${ARCHIVES[want].label}…`
+                                   : `this view fits ${ARCHIVES[want].label} →`;
+  btn.onclick = () => mount(want, currentCarry());
+}
+
+/**
+ * The current view and selection as real dates, for carrying across a switch.
+ */
+function currentCarry() {
+  if (!S.axis) return null;
+  const d = tl.domainKeys(), k = tl.selectionKeys();
+  if (!d || !k) return null;
+  const u = S.axis.unit;
+  return {view: [keyDayRange(d.from, u)[0], keyDayRange(d.to, u)[1]],
+          sel:  [keyDayRange(k.from, u)[0], keyDayRange(k.to, u)[1]]};
+}
+
+/** Grow a carried window to `days`, keeping its centre. */
+function widenCarry(carry, days) {
+  if (!carry || !days) return carry;
+  const toD = k => new Date(+k.slice(0, 4), +k.slice(4, 6) - 1, +k.slice(6, 8));
+  const fmt = d => `${d.getFullYear()}` +
+    String(d.getMonth() + 1).padStart(2, "0") +
+    String(d.getDate()).padStart(2, "0");
+  const a = toD(carry.view[0]), b = toD(carry.view[1]);
+  const have = (b - a) / 86400000;
+  if (days <= have) return carry;
+  const grow = (days - have) / 2;
+  return {sel: carry.sel,
+          view: [fmt(new Date(a.getTime() - grow * 86400000)),
+                 fmt(new Date(b.getTime() + grow * 86400000))]};
+}
+
+/** Land the freshly mounted axis on the window we came from. */
+function applyCarry(carry) {
+  const u = S.axis.unit;
+  // A day key on a monthly axis is its first six digits; a month key on a
+  // daily axis needs a day, and the first of the month is the honest choice
+  // for a start and the last for an end.
+  const toKey = (d, end) => u === "month" ? d.slice(0, 6)
+    : (d.length === 8 ? d : keyDayRange(d.slice(0, 6), "month")[end ? 1 : 0]);
+  const clamp = k => k < S.axis.min ? S.axis.min : k > S.axis.max ? S.axis.max : k;
+  try {
+    tl.setDomainKeys(clamp(toKey(carry.view[0])), clamp(toKey(carry.view[1], true)));
+    tl.setSelectionKeys(clamp(toKey(carry.sel[0])), clamp(toKey(carry.sel[1], true)));
+  } catch (e) {
+    console.warn("could not carry the window across the switch", e);
+  }
+}
+
+// Switching archive is expensive -- a new source, new tiles, a full rescan --
+// so it waits for the gesture to stop and for the domain to hold still. Doing
+// it per event would thrash between two archives at a boundary.
+const SWITCH_SETTLE_MS = 450;
+let _switchTimer = null;
+function considerSwitch(d, dragging, overflow, overflowDays) {
+  if (_switchTimer) { clearTimeout(_switchTimer); _switchTimer = null; }
+  if (!d || !S.axis || dragging || !autoSwitchOn()) return;
+  const latest = ARCHIVES.latest && S.available.latest !== false
+    ? latestWindow() : null;
+  const years = ORDER.filter(k => /^\d{4}$/.test(k));
+
+  // Zooming out of a year archive is invisible to chooseArchive: the axis
+  // clamps the domain to the year, so the rule keeps seeing a domain that
+  // fits the year it is already on and never lets go. The overflow flag is
+  // the request the clamp threw away, so honour it directly.
+  const want = overflow && S.id !== "alltime"
+    ? "alltime"
+    : chooseArchive(d, S.axis.unit, {latest, years});
+
+  if (want === S.id || !ARCHIVES[want] || S.available[want] === false) return;
+  // On an overflow switch, hand the wider archive the span that was actually
+  // requested. Carrying the clamped one lands it on exactly the year we just
+  // left, which its containment rule reads as "go back", and the two bounce.
+  const carry = widenCarry(currentCarry(), overflow ? overflowDays : 0);
+  _switchTimer = setTimeout(() => { _switchTimer = null; mount(want, carry); },
+                            SWITCH_SETTLE_MS);
+}
+
+function autoSwitchOn() {
+  const c = el("autoswitch");
+  return !c || c.checked;
 }
 
 // The rolling window's own extent, once it has been read. Before that it is
@@ -795,12 +923,11 @@ function syncInputs() {
   }
 }
 
-let editing = null;
 for (const id of ["selfrom", "selto"]) {
   const i = el(id);
-  i.addEventListener("focus", () => { editing = i; });
   i.addEventListener("blur", () => {
-    editing = null;
+    // Repaint the field from the truth once the user stops editing, so a
+    // half-typed value does not linger.
     if (S.axis) onTimeline({selection: S.sel, keys: tl.selectionKeys()});
   });
   i.addEventListener("change", () => {

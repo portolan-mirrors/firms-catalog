@@ -640,8 +640,9 @@ export class Timeline {
 
   setDomainKeys(from, to) {
     if (!this.axis) return;
-    this.domain = clampDomain(
-      [this.axis.indexOf(from), this.axis.indexOf(to) + 1], this.axis.count);
+    const want = [this.axis.indexOf(from), this.axis.indexOf(to) + 1];
+    this.overflow = want[0] < 0 || want[1] > this.axis.count;
+    this.domain = clampDomain(want, this.axis.count);
     this._emit();
     this.draw();
   }
@@ -649,6 +650,7 @@ export class Timeline {
   /** Show the last `n` buckets, for the preset spans. */
   setSpan(n) {
     if (!this.axis) return;
+    this.overflow = n != null && n > this.axis.count;
     const c = this.axis.count;
     this.domain = clampDomain([c - n, c], c);
     this._emit();
@@ -657,6 +659,18 @@ export class Timeline {
 
   zoomAt(x, factor) {
     if (!this.axis) return;
+    // Zooming out at full extent is how a viewer asks for more time than this
+    // archive has. clampDomain is right to refuse it, but the request is the
+    // signal to move to a wider archive, so record it before it is lost --
+    // including HOW MUCH was asked for. Carrying only the clamped span sends
+    // the wider archive a domain exactly one year long, which its own
+    // containment rule then reads as "use that year", and the two rules
+    // oscillate.
+    const span = this.domain[1] - this.domain[0];
+    this.overflow = factor < 1 && span >= this.axis.count;
+    this.overflowDays = this.overflow
+      ? Math.round(span / factor) * (this.axis.unit === "month" ? 30.44 : 1)
+      : 0;
     this.domain = zoomDomain(
       this.domain, x, this.width, factor, this.axis.count);
     this._emit();
@@ -717,6 +731,10 @@ export class Timeline {
       // expensive work per event can throttle on this and catch up on the
       // final event, which is the only one the user waits to see.
       dragging: this._drag != null || this._pinch != null,
+      // True when the last change asked for a wider span than the axis holds,
+      // with the span that was asked for, in days.
+      overflow: this.overflow === true,
+      overflowDays: this.overflowDays || 0,
     });
   }
 
