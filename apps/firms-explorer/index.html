@@ -176,8 +176,10 @@ for (const spec of qs.getAll("add")) {
   const i = spec.indexOf("|");
   if (i < 1) continue;
   const id = spec.slice(0, i), url = spec.slice(i + 1);
-  ARCHIVES[id] = {label: `${id} · daily (local)`, url,
-                  presets: [["7d", 7], ["30d", 30], ["90d", 90], ["all", null]]};
+  ARCHIVES[id] = ARCHIVES[id]
+    ? {...ARCHIVES[id], url}          // known archive: point it elsewhere
+    : {label: `${id} · daily (local)`, url,
+       presets: [["7d", 7], ["30d", 30], ["90d", 90], ["all", null]]};
   OVERRIDDEN.add(id);
   if (!ORDER.includes(id)) ORDER.push(id);
 }
@@ -317,6 +319,15 @@ async function mount(id, carry) {
     el("ms").textContent = "–";
     return;
   }
+  // A slim tileset carries no monthly columns and so declares no axis; the
+  // sidecar that took over the time dimension declares it instead.
+  if (!read.meta && id === "alltime") {
+    const st = await openStats().catch(() => null);
+    if (st && st.timeline) {
+      read.meta = st.timeline;
+      read.declared = true;
+    }
+  }
   if (!read.meta) {
     el("hdsub").textContent = arc.label + " · no time axis declared";
     console.warn("archive declares no firms:timeline and carries no bucket " +
@@ -333,7 +344,10 @@ async function mount(id, carry) {
   S.axis = makeAxis(read.meta);
   S.lastLevel = null;
 
-  map.addSource(SRC, {type: "vector", url: "pmtiles://" + arc.url});
+  // promoteId lifts a5_cell to the feature id, which is what feature-state is
+  // keyed by; without it every setFeatureState is a silent no-op.
+  map.addSource(SRC, {type: "vector", url: "pmtiles://" + arc.url,
+                      promoteId: {[AGG_LAYER]: "a5_cell"}});
   map.addLayer({id: AGG, type: "fill", source: SRC, "source-layer": AGG_LAYER,
     paint: {"fill-color": "rgba(0,0,0,0)", "fill-opacity": .74,
             "fill-outline-color": "rgba(0,0,0,0)"}});
@@ -422,6 +436,13 @@ const wholeAxis = () =>
  * expression, which stays exact because each bucket holds a true count.
  */
 function countExpr(cols) {
+  // With the slim tileset there are no monthly columns to sum: the per-cell
+  // total for the selection is computed from the sidecar and pushed into
+  // feature state, so the paint reads exactly one number per cell.
+  if (statsDriven()) {
+    return wholeAxis() ? ["coalesce", ["get", "count"], 0]
+                       : ["coalesce", ["feature-state", "sel"], 0];
+  }
   if (wholeAxis()) return ["coalesce", ["get", "count"], 0];
   if (!cols.length) return 0;
   if (cols.length === 1) return ["coalesce", ["get", "count_" + cols[0]], 0];
@@ -435,11 +456,15 @@ function currentStops(cols) {
   // paints the map flat, so the thresholds are scaled by the share of the
   // record on screen. At full span the scale is 1 and the shipped breaks are
   // used exactly as published.
+  // How much of the record is on screen. With the sidecar driving there are
+  // no tile columns to count, so the selection width comes from the axis --
+  // otherwise the scale is 0/311 and every threshold collapses to zero.
+  const nsel = statsDriven() ? selectionWidth() : cols.length;
   const scale = wholeAxis() || !S.axis
-    ? 1 : cols.length / Math.max(1, S.axis.declaredBuckets);
+    ? 1 : nsel / Math.max(1, S.axis.declaredBuckets);
   const stops = band
     ? shippedStops(S.breaks, band.level, "count", COUNT_RAMP, scale) : null;
-  return {band, scale, stops: stops || COUNT_RAMP};
+  return {band, scale, stops: stops || COUNT_RAMP, nsel};
 }
 
 // Dragging a selection handle emits a change per pointer move. Rebuilding a
@@ -460,6 +485,20 @@ function currentStops(cols) {
 // repaint when it ends, which is the only frame the user waits to see. The
 // timeline keeps redrawing every frame, so the gesture still feels immediate.
 const MAP_THROTTLE_MS = 60;
+// Feature state costs more per update than a paint expression: changing it
+// dirties the tile, and the slim archive deliberately puts all 22k cells in
+// one. Throttling trades stall frequency against stall length, and measurement
+// says the middle is the least bad place to sit:
+//
+//    60 ms   drag 3.2 s   p90 21 ms   worst  297 ms   12 frames >100 ms
+//   180 ms   drag 2.8 s   p90 18 ms   worst  299 ms   11 frames >100 ms
+//   400 ms   drag 4.4 s   p90 10 ms   worst 1587 ms   11 frames >100 ms
+//
+// Longer throttles batch more cells into each update, so the stalls get rarer
+// but much longer, which reads worse. The timeline redraws every frame
+// regardless, so the gesture itself stays live either way.
+const STATE_THROTTLE_MS = 120;
+function throttleMs() { return statsDriven() ? STATE_THROTTLE_MS : MAP_THROTTLE_MS; }
 let _pending = false, _lastPaint = 0, _trailing = null;
 function applySelection(dragging) {
   if (!dragging) {
@@ -470,7 +509,7 @@ function applySelection(dragging) {
     return;
   }
   const since = performance.now() - _lastPaint;
-  if (since >= MAP_THROTTLE_MS) {
+  if (since >= throttleMs()) {
     if (_pending) return;
     _pending = true;
     requestAnimationFrame(() => { _pending = false; _lastPaint = performance.now(); applyNow(); });
@@ -481,14 +520,15 @@ function applySelection(dragging) {
   if (_trailing) return;
   _trailing = setTimeout(() => {
     _trailing = null; _lastPaint = performance.now(); applyNow();
-  }, MAP_THROTTLE_MS - since);
+  }, throttleMs() - since);
 }
 
 function applyNow() {
   if (!map.getLayer(AGG) || !S.axis) return;
   const cols = selectedColumns();
+  if (statsDriven() && !wholeAxis()) pushStatsState();
   const expr = countExpr(cols);
-  const {band, scale, stops} = currentStops(cols);
+  const {band, scale, stops, nsel} = currentStops(cols);
   S.lastLevel = band ? band.level : null;
 
   // A cell with nothing in the selection is drawn as nothing rather than
@@ -508,7 +548,7 @@ function applyNow() {
     map.setFilter(PTS, wholeAxis() || !cols.length ? null
       : ["match", ["to-string", ["get", "day"]], cols, true, false]);
   }
-  renderLegend(stops, scale, cols.length);
+  renderLegend(stops, scale, nsel);
 }
 
 const fmt = n => n >= 1e6 ? (n / 1e6).toFixed(1) + "M"
@@ -688,6 +728,45 @@ function computeHistogram() {
   window._lastHistogram = {ms, cells: inView, scanned: seen.size,
                            cached: S.cells.size,
                            total: Object.values(buckets).reduce((a, x) => a + x, 0)};
+}
+
+/** True when the sidecar, not the tiles, is the source of per-month numbers. */
+/** Buckets inside the selection, counted on the axis rather than the tiles. */
+function selectionWidth() {
+  return S.axis ? (S.sel.to - S.sel.from + 1) : 0;
+}
+
+function statsDriven() {
+  return S.id === "alltime" && STATS && STATS.ready &&
+         S.columns && S.columns.size === 0;
+}
+
+// Reused between frames so a drag does not allocate a new array per update.
+const _sums = [];
+let _lastSel = "";
+
+/**
+ * Push each visible cell's selected total into feature state.
+ *
+ * Three things keep this cheap enough to run while dragging. Only cells in the
+ * viewport are touched, not every cell ever cached -- that alone was what made
+ * the first attempt slower than the expression it replaced. The total comes
+ * from a prefix sum, so it is one subtraction per cell rather than a
+ * membership test per bucket. And an unchanged selection is skipped outright.
+ */
+function pushStatsState() {
+  const k = tl.selectionKeys();
+  if (!k) return;
+  const sig = k.from + ":" + k.to + ":" + map.getBounds().toArray().join();
+  if (sig === _lastSel) return;
+  _lastSel = sig;
+  const b = map.getBounds();
+  STATS.selectedSums(k.from, k.to, b.getWest(), b.getSouth(), b.getEast(),
+                     b.getNorth(), lngOverlaps, _sums);
+  for (let i = 0; i < _sums.length; i += 2) {
+    map.setFeatureState({source: SRC, sourceLayer: AGG_LAYER, id: _sums[i]},
+                        {sel: _sums[i + 1]});
+  }
 }
 
 /** The same histogram, read from the stats sidecar instead of the tiles. */
@@ -933,20 +1012,30 @@ function autoSwitchOn() {
 // a coarse grid versus fine cells and one selection -- and serving both from
 // the tileset is why the zoomed-out map is r4. The sidecar carries no geometry
 // and covers the full r6 grid for under two megabytes.
-let STATS = null;
+let STATS = null, _statsOpen = null;
+/**
+ * Open the sidecar once, and resolve as soon as it is drawable.
+ *
+ * Returns a promise because mounting now depends on it: a slim tileset carries
+ * no monthly columns and therefore declares no axis, so the sidecar has to be
+ * read before the timeline can be built at all.
+ */
 function openStats() {
-  if (STATS) return STATS;
+  if (_statsOpen) return _statsOpen;
   // ?stats=… points at a local build, the way ?add= does for archives.
-  STATS = new Stats(qs.get("stats") || `${BASE}/stats`);
-  STATS.open(() => {
+  const st = new Stats(qs.get("stats") || `${BASE}/stats`);
+  _statsOpen = st.open(() => {
     // Each chunk that lands widens the axis, so redraw as they arrive rather
-    // than waiting for all four.
-    if (S.id === "alltime") { _histoDirty = true; computeHistogram(); }
-  }).catch(e => {
-    console.warn("stats sidecar unavailable; falling back to the tiles", e);
-    STATS = null;
-  });
-  return STATS;
+    // than making the first paint wait for all four. The selection signature
+    // is cleared so the newly loaded months actually repaint the map.
+    if (S.id === "alltime") { _lastSel = ""; _histoDirty = true; computeHistogram(); }
+  }).then(() => { STATS = st; return st; })
+    .catch(e => {
+      console.warn("stats sidecar unavailable; falling back to the tiles", e);
+      _statsOpen = null;
+      return null;
+    });
+  return _statsOpen;
 }
 
 // The rolling window's own extent, once it has been read. Before that it is

@@ -63,7 +63,17 @@ def main() -> int:
              COMPRESSION_LEVEL {a.compression_level}, ROW_GROUP_SIZE 1000000)""")
         return str(p), p.stat().st_size
 
-    manifest = {"cells": "cells.parquet", "chunks": [], "unit": "month"}
+    # The sidecar declares the axis, in the same shape as firms:timeline.
+    # Once the tileset is slimmed of its monthly columns it can no longer
+    # declare one -- there is nothing left to derive it from -- so the file
+    # that owns the time dimension has to say what it is.
+    manifest = {
+        "cells": "cells.parquet",
+        "chunks": [],
+        "timeline": {"unit": "month", "key_format": "count_YYYYMM",
+                     "min": months[0][6:], "max": months[-1][6:],
+                     "buckets": len(months)},
+    }
 
     _, size = write("cells", f"""
         SELECT a5_cell,
