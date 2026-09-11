@@ -233,6 +233,16 @@ def aws_session(config: dict[str, str]):
 # 503 and 504 but not 524, so a part that times out fails the whole file. Both
 # 2022 and 2023 died this way after their data had already been rebuilt.
 RETRY_STATUS = {500, 502, 503, 504, 520, 522, 524}
+# A dropped connection carries no HTTP status at all, so a status-only rule
+# never retries it. A 1.3 GB archive is twenty-odd parts, and losing any one of
+# them failed the whole file: "Could not connect to the endpoint URL ...
+# partNumber=7". Matched by class name to avoid importing botocore here, which
+# the dry-run and test paths deliberately run without.
+RETRY_EXCEPTIONS = {
+    "EndpointConnectionError", "ConnectionClosedError", "ConnectTimeoutError",
+    "ReadTimeoutError", "ConnectionError", "IncompleteReadError",
+    "ResponseStreamingError", "RemoteDisconnected", "ProtocolError",
+}
 UPLOAD_ATTEMPTS = 6
 
 
@@ -284,6 +294,13 @@ def s3_client(session, config: dict[str, str]):
 def status_of(exc) -> int | None:
     meta = getattr(exc, "response", None) or {}
     return (meta.get("ResponseMetadata") or {}).get("HTTPStatusCode")
+
+
+def is_transient(exc) -> bool:
+    """Worth another attempt: a gateway status, or a lost connection."""
+    if status_of(exc) in RETRY_STATUS:
+        return True
+    return any(t.__name__ in RETRY_EXCEPTIONS for t in type(exc).__mro__)
 
 
 def remote_index(
@@ -345,11 +362,11 @@ def upload_all(session, bucket: str, uploads: list[Upload], config: dict[str, st
                     str(upload.local), bucket, upload.key, **extra)
                 return
             except Exception as exc:  # noqa: BLE001 - retry decision below
-                code = status_of(exc)
-                if code not in RETRY_STATUS or attempt == UPLOAD_ATTEMPTS:
+                if not is_transient(exc) or attempt == UPLOAD_ATTEMPTS:
                     raise
                 wait = min(60, 2 ** attempt)
-                print(f"  retry {upload.key} after HTTP {code} "
+                why = status_of(exc) or type(exc).__name__
+                print(f"  retry {upload.key} after {why} "
                       f"({attempt}/{UPLOAD_ATTEMPTS - 1}, {wait}s)")
                 time.sleep(wait)
 

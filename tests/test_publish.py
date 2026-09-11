@@ -265,7 +265,9 @@ else:
 # publishing that way after their data had already been rebuilt.
 import time  # noqa: E402
 
-from publish import RETRY_STATUS, UPLOAD_ATTEMPTS, status_of  # noqa: E402
+from publish import (  # noqa: E402
+    RETRY_STATUS, UPLOAD_ATTEMPTS, is_transient, status_of,
+)
 
 # The backoff is real seconds in production and pointless here.
 time.sleep = lambda *_a, **_k: None
@@ -277,7 +279,10 @@ class Boom(Exception):
 
 
 class FlakyClient:
-    """Fails with `code` for the first `n` attempts, then succeeds."""
+    """Fails for the first `n` attempts, then succeeds.
+
+    `code` is an HTTP status, or an exception instance to raise as-is.
+    """
 
     def __init__(self, code, n, log):
         self.code, self.left, self.log = code, n, log
@@ -285,7 +290,7 @@ class FlakyClient:
     def upload_file(self, local, bucket, key, ExtraArgs, Config=None):
         if self.left > 0:
             self.left -= 1
-            raise Boom(self.code)
+            raise self.code if isinstance(self.code, Exception) else Boom(self.code)
         self.log.append(key)
 
 
@@ -299,6 +304,30 @@ class FlakySession:
 
 
 check(status_of(Boom(524)) == 524, "status_of reads the HTTP status")
+
+
+# A dropped connection has no HTTP status. Retrying only on status codes let a
+# single lost part fail a 1.3 GB upload outright.
+class EndpointConnectionError(Exception):
+    pass
+
+
+class ReadTimeoutError(Exception):
+    pass
+
+
+class Refused(Exception):
+    pass
+
+
+check(is_transient(Boom(524)), "a gateway status is transient")
+check(is_transient(EndpointConnectionError("no route")),
+      "a lost connection is transient even with no HTTP status")
+check(is_transient(ReadTimeoutError("slow")), "a read timeout is transient")
+check(not is_transient(Boom(403)), "403 is not transient")
+check(not is_transient(Refused("nope")), "an unknown error is not transient")
+check(status_of(EndpointConnectionError("x")) is None,
+      "a connection error carries no status")
 check(status_of(RuntimeError("x")) is None, "status_of tolerates a plain error")
 check(524 in RETRY_STATUS, "524 is retryable")
 check(403 not in RETRY_STATUS, "403 is not retryable")
@@ -321,6 +350,15 @@ with tempfile.TemporaryDirectory() as tmp:
     with redirect_stdout(out), redirect_stderr(err):
         failed = upload_all(sess, "a-bucket", one)
     check(failed == ["p/r.json"], "403 fails immediately instead of retrying")
+
+    # The real 2020 failure: the connection dropped on part 7 of a multipart
+    # upload, with no HTTP status anywhere.
+    sess = FlakySession(EndpointConnectionError("could not connect"), 3)
+    out, err = io.StringIO(), io.StringIO()
+    with redirect_stdout(out), redirect_stderr(err):
+        failed = upload_all(sess, "a-bucket", one)
+    check(failed == [], "a dropped connection is retried, not fatal")
+    check(sess.log == ["p/r.json"], "the file lands after reconnecting")
 
     # A permanently broken gateway must give up rather than hang forever.
     sess = FlakySession(524, UPLOAD_ATTEMPTS + 5)
