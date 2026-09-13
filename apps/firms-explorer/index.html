@@ -489,6 +489,35 @@ function countExpr(cols) {
  * once. Falls back to the single band's paint where the pyramid has only one,
  * or where breaks are missing and every band would look identical anyway.
  */
+// The last filter actually pushed, so an unchanged one is not pushed again.
+let _lastFilter = "";
+
+/**
+ * Filter the raw points to the selection.
+ *
+ * Three things here, all about cost. setFilter re-lays out the layer, which is
+ * far more expensive than a paint change -- the comment that used to sit here
+ * said so, while the code did one on every drag frame regardless.
+ *
+ * So: skip it entirely while the points band is out of zoom range, which at
+ * z2 is always; express the selection as two comparisons rather than a match
+ * against up to 366 values, since zero-padded YYYYMMDD compares correctly as
+ * text; and skip the call when the filter has not changed.
+ */
+function applyPointFilter(cols) {
+  if (!map.getLayer(PTS)) return;
+  if (map.getZoom() < (S.ptsMinZoom || Infinity)) return;
+  let f = null;
+  if (!wholeAxis() && cols.length) {
+    const day = ["to-string", ["get", "day"]];
+    f = ["all", [">=", day, cols[0]], ["<=", day, cols[cols.length - 1]]];
+  }
+  const sig = JSON.stringify(f);
+  if (sig === _lastFilter) return;
+  _lastFilter = sig;
+  map.setFilter(PTS, f);
+}
+
 function bandedPaint(expr, cols, build) {
   const bands = (S.bands || []).filter(b => b.layer !== PT_LAYER);
   const stopsFor = b => {
@@ -615,13 +644,7 @@ function applyNow() {
   map.setPaintProperty(AGG, "fill-color", fill);
   map.setPaintProperty(AGG, "fill-outline-color", outline);
 
-  if (map.getLayer(PTS)) {
-    // Raw points carry the day they were seen, not a bucket column, and the
-    // property is a string in some builds and a number in others. Coercing
-    // once inside the expression keeps one filter correct for both.
-    map.setFilter(PTS, wholeAxis() || !cols.length ? null
-      : ["match", ["to-string", ["get", "day"]], cols, true, false]);
-  }
+  applyPointFilter(cols);
   renderLegend(stops, scale, nsel);
 }
 
@@ -979,6 +1002,9 @@ map.on("zoom", () => {
   const {scale, stops, nsel} = currentStops(cols);
   renderLegend(stops, scale, nsel);
   el("z").textContent = map.getZoom().toFixed(1);
+  // The point filter is skipped while the band is out of range, so crossing
+  // into it has to apply whatever the selection became meanwhile.
+  applyPointFilter(cols);
 });
 
 map.on("moveend", scheduleHistogram);
