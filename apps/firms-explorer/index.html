@@ -707,8 +707,14 @@ function cellRecord(f) {
   const p = f.properties, idx = [], val = [];
   for (const k in p) {
     if (!k.startsWith("count_")) continue;
+    // Reject non-bucket count_ columns on the first character rather than by
+    // regex. Cumulative columns double the key count on every feature, and a
+    // regex per key took the histogram from 507 ms to 886 ms; a charCode test
+    // rejects count_c*, count_d, count_modis before the regex is reached.
+    const c0 = k.charCodeAt(6);
+    if (c0 < 48 || c0 > 57) continue;
     const key = k.slice(6);
-    if (!BUCKET_KEY.test(key)) continue;      // count_d, count_n, count_modis
+    if (!BUCKET_KEY.test(key)) continue;
     const v = p[k];
     if (!v) continue;
     let i;
@@ -977,7 +983,15 @@ map.on("zoom", () => {
 
 map.on("moveend", scheduleHistogram);
 map.on("idle", histogramIfDirty);
-map.on("sourcedata", e => { if (e.sourceId === SRC && e.isSourceLoaded) scheduleHistogram(); });
+map.on("sourcedata", e => {
+  if (e.sourceId !== SRC || !e.isSourceLoaded) return;
+  scheduleHistogram();
+  // Whether this archive carries running totals can only be answered once a
+  // tile exists, and applyNow runs at mount when none do. Without this the
+  // map keeps the slow summed expression until the user happens to move the
+  // selection -- correct output, but the wrong cost, and invisible.
+  if (_hasCum === null && hasCumulative()) applySelection(false);
+});
 
 map.on("move", () => {
   el("z").textContent = map.getZoom().toFixed(1);
