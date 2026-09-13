@@ -444,7 +444,7 @@ function hasCumulative() {
   if (_hasCum !== null) return _hasCum;
   const feats = map.querySourceFeatures(SRC, {sourceLayer: AGG_LAYER});
   if (!feats.length) return false;
-  _hasCum = Object.keys(feats[0].properties).some(k => /^cum_\d+$/.test(k));
+  _hasCum = Object.keys(feats[0].properties).some(k => /^count_c\d+$/.test(k));
   return _hasCum;
 }
 
@@ -477,11 +477,38 @@ function countExpr(cols) {
     // No bucket before the first selected one means the running total at the
     // end IS the answer; subtracting nothing is correct, not a special case.
     return lo
-      ? ["-", ["coalesce", ["get", "cum_" + hi], 0],
-              ["coalesce", ["get", "cum_" + lo], 0]]
-      : ["coalesce", ["get", "cum_" + hi], 0];
+      ? ["-", ["coalesce", ["get", "count_c" + hi], 0],
+              ["coalesce", ["get", "count_c" + lo], 0]]
+      : ["coalesce", ["get", "count_c" + hi], 0];
   }
   return ["+"].concat(cols.map(k => ["coalesce", ["get", "count_" + k], 0]));
+}
+
+/**
+ * Wrap a per-band paint in a step on zoom, so every band's thresholds ship at
+ * once. Falls back to the single band's paint where the pyramid has only one,
+ * or where breaks are missing and every band would look identical anyway.
+ */
+function bandedPaint(expr, cols, build) {
+  const bands = (S.bands || []).filter(b => b.layer !== PT_LAYER);
+  const stopsFor = b => {
+    const st = S.breaks
+      ? shippedStops(S.breaks, b.level, "count", COUNT_RAMP, selScale(cols))
+      : null;
+    return st || COUNT_RAMP;
+  };
+  if (bands.length < 2 || !S.breaks) return build(stopsFor(bands[0] || {}));
+  const sorted = [...bands].sort((a, b) => a.minzoom - b.minzoom);
+  const out = ["step", ["zoom"], build(stopsFor(sorted[0]))];
+  for (const b of sorted.slice(1)) out.push(b.minzoom, build(stopsFor(b)));
+  return out;
+}
+
+/** Share of the record on screen, used to scale the shipped breaks. */
+function selScale(cols) {
+  if (wholeAxis() || !S.axis) return 1;
+  const n = statsDriven() ? selectionWidth() : cols.length;
+  return n / Math.max(1, S.axis.declaredBuckets);
 }
 
 function currentStops(cols) {
@@ -495,8 +522,7 @@ function currentStops(cols) {
   // no tile columns to count, so the selection width comes from the axis --
   // otherwise the scale is 0/311 and every threshold collapses to zero.
   const nsel = statsDriven() ? selectionWidth() : cols.length;
-  const scale = wholeAxis() || !S.axis
-    ? 1 : nsel / Math.max(1, S.axis.declaredBuckets);
+  const scale = selScale(cols);
   const stops = band
     ? shippedStops(S.breaks, band.level, "count", COUNT_RAMP, scale) : null;
   return {band, scale, stops: stops || COUNT_RAMP, nsel};
@@ -570,11 +596,24 @@ function applyNow() {
   // filtered out, because a filter change re-lays out the layer and a paint
   // change does not. The outline follows the same test or every empty cell
   // would leave its border behind as a grid of noise.
-  const fill = ["step", expr, "rgba(0,0,0,0)"];
-  for (const [t, c] of stops) fill.push(t, c);
+  // Step on zoom FIRST, then on the value.
+  //
+  // Each band has its own class breaks -- coarse cells hold far bigger totals
+  // than fine ones -- so the thresholds have to change when the band does.
+  // Rebuilding the expression for the current band only meant that crossing a
+  // band edge painted the new cells with the previous band's breaks until
+  // something else happened to trigger a repaint, which is the flicker you see
+  // on zoom. The paint never changed on zoom at all; it changed on selection.
+  //
+  // Handing MapLibre every band's thresholds at once removes the race rather
+  // than narrowing it: the switch happens inside the same frame as the zoom,
+  // with no JS in the loop.
+  const fill = bandedPaint(expr, cols, st =>
+    ["step", expr, "rgba(0,0,0,0)"].concat(st.flatMap(([t, c]) => [t, c])));
+  const outline = bandedPaint(expr, cols, st =>
+    ["step", expr, "rgba(0,0,0,0)", st[0][0], "rgba(0,0,0,.28)"]);
   map.setPaintProperty(AGG, "fill-color", fill);
-  map.setPaintProperty(AGG, "fill-outline-color",
-    ["step", expr, "rgba(0,0,0,0)", stops[0][0], "rgba(0,0,0,.28)"]);
+  map.setPaintProperty(AGG, "fill-outline-color", outline);
 
   if (map.getLayer(PTS)) {
     // Raw points carry the day they were seen, not a bucket column, and the
@@ -919,6 +958,22 @@ function histogramIfDirty() { if (_histoDirty) scheduleHistogram(); }
 // whose id shadows it. Read-only by convention; nothing in the app uses it.
 window.__explorer = {get map() { return map; }, get tl() { return tl; },
                      get state() { return S; }};
+
+// The paint now carries every band's thresholds, so the map needs nothing on
+// zoom. The legend still does: it describes one band, and which band that is
+// changes under the cursor. Redrawing it is cheap, so it follows the zoom
+// directly rather than waiting for the next selection change.
+map.on("zoom", () => {
+  const band = bandAt(S.bands, map.getZoom());
+  const level = band ? band.level : null;
+  if (level === S.lastLevel) return;
+  S.lastLevel = level;
+  if (!S.axis) return;
+  const cols = selectedColumns();
+  const {scale, stops, nsel} = currentStops(cols);
+  renderLegend(stops, scale, nsel);
+  el("z").textContent = map.getZoom().toFixed(1);
+});
 
 map.on("moveend", scheduleHistogram);
 map.on("idle", histogramIfDirty);
