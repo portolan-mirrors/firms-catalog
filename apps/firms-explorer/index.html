@@ -338,6 +338,7 @@ async function mount(id, carry) {
   for (const l of [PTS, AGG]) if (map.getLayer(l)) map.removeLayer(l);
   if (map.getSource(SRC)) map.removeSource(SRC);
   S.cells.clear();
+  _bandBuckets.clear();
   S.id = id;
   S.available[id] = true;
   Object.assign(S, read);
@@ -674,10 +675,11 @@ function computeHistogram() {
   const t0 = performance.now();
 
   // The sidecar answers the same question without decoding a tile, at the
-  // full r6 grid rather than whatever the current band happens to be. Only
-  // for the all-time archive: a year's daily buckets already fit its tiles.
-  if (S.id === "alltime" && STATS && STATS.ready &&
-      map.getZoom() < (S.ptsMinZoom || Infinity)) {
+  // full r6 grid rather than the coarse band the tiles would give. The test
+  // is the same one the map uses, so the two never disagree about where the
+  // numbers came from -- and on a band that does carry its own columns the
+  // tiles win, being clipped to the viewport at the finer resolution.
+  if (statsDriven() && map.getZoom() < (S.ptsMinZoom || Infinity)) {
     histogramFromStats(t0);
     return;
   }
@@ -736,9 +738,38 @@ function selectionWidth() {
   return S.axis ? (S.sel.to - S.sel.from + 1) : 0;
 }
 
+/**
+ * Whether the sidecar, rather than the tiles, supplies this band's numbers.
+ *
+ * Decided per BAND, not per archive. The all-time archive is deliberately
+ * mixed: its coarse band is stripped of monthly columns, because 22k cells
+ * times 311 columns is a multi-megabyte z0 tile, and the sidecar covers it.
+ * Its fine band keeps every column, because at those zooms a tile holds a
+ * handful of cells and the columns are free -- and a paint expression over
+ * them is cheaper than feature state, which dirties the whole tile.
+ *
+ * The test is what the tile in front of us actually carries, not which archive
+ * it came from, so a mixed archive does the right thing at both ends.
+ */
 function statsDriven() {
-  return S.id === "alltime" && STATS && STATS.ready &&
-         S.columns && S.columns.size === 0;
+  if (!(S.id === "alltime" && STATS && STATS.ready)) return false;
+  return !bandHasBuckets(bandAt(S.bands, map.getZoom()));
+}
+
+// Which bands were found to carry bucket columns, filled in as tiles arrive.
+// A band is assumed slim until a feature from it proves otherwise: guessing
+// the other way paints nothing while the first tile is still in flight.
+const _bandBuckets = new Map();
+function bandHasBuckets(band) {
+  if (!band) return false;
+  const known = _bandBuckets.get(band.level);
+  if (known !== undefined) return known;
+  const feats = map.querySourceFeatures(SRC, {sourceLayer: AGG_LAYER});
+  if (!feats.length) return false;
+  const has = Object.keys(feats[0].properties)
+    .some(k => /^count_\d{6}$/.test(k));
+  _bandBuckets.set(band.level, has);
+  return has;
 }
 
 // Reused between frames so a drag does not allocate a new array per update.
