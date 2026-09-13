@@ -30,45 +30,20 @@
               0
             ],
             "#2c3d5a",
-            8.6,
+            8.4,
             "#3f6d8f",
             13,
             "#59a1a0",
             20,
             "#a8c268",
-            29,
-            "#f2b134",
-            44,
-            "#e8722c",
-            73,
-            "#d1382a"
-          ],
-          6,
-          [
-            "step",
-            [
-              "coalesce",
-              [
-                "get",
-                "avg_frp"
-              ],
-              0
-            ],
-            "#2c3d5a",
-            8.3,
-            "#3f6d8f",
-            13,
-            "#59a1a0",
-            19,
-            "#a8c268",
             28,
             "#f2b134",
             44,
             "#e8722c",
-            64,
+            63,
             "#d1382a"
           ],
-          8,
+          6,
           [
             "step",
             [
@@ -97,14 +72,14 @@
         "fill-opacity": 0.78,
         "fill-outline-color": "rgba(0,0,0,0.2)"
       },
-      "maxzoom": 10
+      "maxzoom": 9
     },
     {
       "id": "fire-points",
       "type": "circle",
       "source": "data",
       "source-layer": "features",
-      "minzoom": 10,
+      "minzoom": 9,
       "paint": {
         "circle-color": [
           "step",
@@ -136,9 +111,9 @@
           [
             "zoom"
           ],
-          10,
+          9,
           2.2,
-          14,
+          13,
           6
         ],
         "circle-opacity": 0.9

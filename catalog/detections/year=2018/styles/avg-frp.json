@@ -1,10 +1,10 @@
 {
   "version": 8,
-  "name": "Fire detections, 2020 (density)",
+  "name": "Fire radiative power, 2018 (average)",
   "sources": {
     "data": {
       "type": "vector",
-      "url": "pmtiles://./fire-2020.pmtiles"
+      "url": "pmtiles://./fire-2018.pmtiles"
     }
   },
   "layers": [
@@ -25,47 +25,47 @@
               "coalesce",
               [
                 "get",
-                "count"
+                "avg_frp"
               ],
               0
             ],
             "#2c3d5a",
-            1138,
+            8.7,
             "#3f6d8f",
-            6494,
+            14,
             "#59a1a0",
-            25646,
+            20,
             "#a8c268",
-            60785,
+            30,
             "#f2b134",
-            106407,
+            48,
             "#e8722c",
-            131146,
+            64,
             "#d1382a"
           ],
-          6,
+          8,
           [
             "step",
             [
               "coalesce",
               [
                 "get",
-                "count"
+                "avg_frp"
               ],
               0
             ],
             "#2c3d5a",
-            48,
+            7.7,
             "#3f6d8f",
-            268,
+            12,
             "#59a1a0",
-            987,
+            19,
             "#a8c268",
-            1642,
+            29,
             "#f2b134",
-            2501,
+            52,
             "#e8722c",
-            4021,
+            79,
             "#d1382a"
           ]
         ],

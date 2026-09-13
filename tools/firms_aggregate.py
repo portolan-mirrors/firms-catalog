@@ -48,6 +48,13 @@ OVERVIEWS = "6,4"   # r2 (143 cells) is unreadable at full zoom-out; r4 (1,224) 
 METRICS = "sum:frp,avg:frp,max:frp"
 ZSTD_LEVEL = 22
 FEATURES_MIN_ZOOM = 10
+# gpio's budget for deciding where one band hands over to the next. The default
+# of 500 KB keeps tiles small by keeping coarse cells for longer, which at z6
+# and z7 meant 8 to 24 enlarged r5 blocks where the finer band would have shown
+# hundreds of real cells. Raising it moves the handover two zooms earlier and
+# costs about 840 KB on the z6 tile -- worth it, because those are the zooms
+# where detail starts to matter and z6 is far past where anything loads.
+MAX_TILE_KB = 8000
 
 # breakdown column -> how many pivoted values to allow
 # A year needs 366 day columns. The old cap of 40 was sized for the rolling
@@ -73,6 +80,8 @@ def main() -> int:
     ap.add_argument("--resolution", type=int)
     ap.add_argument("--levels")
     ap.add_argument("--features-min-zoom", type=int, default=FEATURES_MIN_ZOOM)
+    ap.add_argument("--max-tile-kb", type=int, default=MAX_TILE_KB,
+                    help="band-handover budget; lower keeps coarse cells longer")
     ap.add_argument("--cumulative", action="store_true",
                     help="add running-total columns for flat-cost selections")
     ap.add_argument("--year", type=int,
@@ -175,7 +184,7 @@ def main() -> int:
         archive = tiles / name
         print(f"[pyramid] aggregate bands + raw points from z{a.features_min_zoom}")
         run(["gpio", "pmtiles", "pyramid", str(combined), str(archive),
-             "--levels", a.levels,
+             "--levels", a.levels, "--max-tile-kb", str(a.max_tile_kb),
              "--include-features",
              "--features-source", str(src),
              "--features-min-zoom", str(a.features_min_zoom), "-f"])
