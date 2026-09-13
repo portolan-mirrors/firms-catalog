@@ -36,3 +36,9 @@ __pycache__/
 
 # Local python venv for the pinned validator
 .venv/
+
+# Dev conveniences: the explorer is pointed at locally built archives and stats
+# with ?add= and ?stats=, and those symlinks reach into catalog-staging, which
+# is not in the repo. Committed, they are broken links in every clone.
+apps/firms-explorer/stats
+apps/firms-explorer/stats-*

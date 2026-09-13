@@ -68,7 +68,8 @@
       "roles": [
         "visual",
         "tiles"
-      ]
+      ],
+      "file:size": 1321163879
     },
     "style-avg-frp": {
       "href": "./styles/avg-frp.json",

@@ -378,3 +378,51 @@ without double-drawing shared cells.
 
 Adding a timeline to the existing preview app is also out of scope. It keeps
 its simple day filter; the two apps share archives, not interface.
+
+## Measured: sidecar versus monthly columns in the tiles
+
+The sidecar exists because the timeline and the map want opposite things from
+one archive. Having built it, the obvious question is whether it was necessary
+at all -- a coarse enough grid might carry its time columns inline. Measured on
+the all-time archive at r5 (7,582 cells) and on one year at r5 (5,124 cells):
+
+| archive | z0 tile | total | sidecar |
+|---|---|---|---|
+| all-time, r5, 311 monthly columns | 3,580 KB | 3.68 MB | none |
+| all-time, r5, slim | 342 KB | 0.35 MB | +3.01 MB |
+| all-time, r6, slim | 846 KB | 0.87 MB | +6.18 MB |
+| all-time, r6, 27 yearly columns | 1,994 KB | 2.05 MB | none |
+| one year, r5, 12 monthly columns | 446 KB | 0.46 MB | none |
+| one year, r6, 12 monthly columns | 1,122 KB | 1.15 MB | none |
+
+**A year needs no sidecar.** Twelve monthly buckets is a fortieth of the
+all-time axis, and inline it costs a few hundred kilobytes. Year archives
+should carry monthly columns in their coarse band, which also gives any client
+month filtering without knowing about our sidecar at all.
+
+**For all-time the two approaches trade off rather than one winning.**
+
+| | first paint | histogram, warm | drag, 40 moves |
+|---|---|---|---|
+| slim + sidecar | 1.18 MB | 17-20 ms | 2846 ms, 11 frames >100 ms |
+| monthly inline | 3.58 MB | 283-324 ms | 711 ms, 2 frames >100 ms |
+
+Each is fast at what it was built for. The sidecar scans typed arrays, so its
+histogram is fifteen times quicker. Inline drags four times better, because a
+paint expression does not dirty a tile the way feature state does, and the slim
+archive deliberately puts every cell in one tile.
+
+The recommendation is inline, on the grounds that dragging is the interaction
+people actually feel and 3.58 MB is paid once and cached. It also removes a
+great deal: the hyparquet dependency, the prefix table, feature state, the
+per-band mode switch, and the BigInt/Number identity trap that cost two
+debugging cycles. One mechanism that is good everywhere beats two that are each
+excellent at one end and poor at the other.
+
+The histogram gap is not intrinsic. The tile path rebuilds a record per cell on
+first sight, which is where 1,024 ms of cold cost comes from; the same
+typed-array packing the sidecar uses would close most of it.
+
+Keeping the sidecar in history regardless: it is the only thing measured that
+gives a sub-20 ms histogram, and if the timeline ever needs sub-monthly
+resolution across the whole record, it is the design that supports it.
