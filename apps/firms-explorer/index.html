@@ -339,6 +339,7 @@ async function mount(id, carry) {
   if (map.getSource(SRC)) map.removeSource(SRC);
   S.cells.clear();
   _bandBuckets.clear();
+  _hasCum = null;
   S.id = id;
   S.available[id] = true;
   Object.assign(S, read);
@@ -436,6 +437,23 @@ const wholeAxis = () =>
  * narrower selection has no precomputed column and must be summed in the
  * expression, which stays exact because each bucket holds a true count.
  */
+// Does this archive carry running totals? Detected from the tile rather than
+// declared, so an archive built either way just works.
+let _hasCum = null;
+function hasCumulative() {
+  if (_hasCum !== null) return _hasCum;
+  const feats = map.querySourceFeatures(SRC, {sourceLayer: AGG_LAYER});
+  if (!feats.length) return false;
+  _hasCum = Object.keys(feats[0].properties).some(k => /^cum_\d+$/.test(k));
+  return _hasCum;
+}
+
+// Feature state was tried here and measured 13x worse than the expression it
+// would replace: drag 953 ms -> 12.8 s, p90 frame 36 ms -> 475 ms. Setting
+// state dirties every tile holding a changed cell, and that costs more than
+// re-evaluating the expression, however cheap the arithmetic feeding it. The
+// same thing happened on the sidecar path. Do not try it a third time.
+
 function countExpr(cols) {
   // With the slim tileset there are no monthly columns to sum: the per-cell
   // total for the selection is computed from the sidecar and pushed into
@@ -447,6 +465,22 @@ function countExpr(cols) {
   if (wholeAxis()) return ["coalesce", ["get", "count"], 0];
   if (!cols.length) return 0;
   if (cols.length === 1) return ["coalesce", ["get", "count_" + cols[0]], 0];
+
+  // Running totals turn the sum into a difference: two property reads instead
+  // of one per selected bucket. The expression then costs the same whether the
+  // user has selected five days or three hundred, which is the whole point --
+  // a fifty-day selection was re-reading fifty properties per cell per frame.
+  if (hasCumulative()) {
+    const hi = cols[cols.length - 1];
+    const before = S.axis.indexOf(cols[0]) - 1;
+    const lo = before >= 0 ? S.axis.keyAt(before) : null;
+    // No bucket before the first selected one means the running total at the
+    // end IS the answer; subtracting nothing is correct, not a special case.
+    return lo
+      ? ["-", ["coalesce", ["get", "cum_" + hi], 0],
+              ["coalesce", ["get", "cum_" + lo], 0]]
+      : ["coalesce", ["get", "cum_" + hi], 0];
+  }
   return ["+"].concat(cols.map(k => ["coalesce", ["get", "count_" + k], 0]));
 }
 

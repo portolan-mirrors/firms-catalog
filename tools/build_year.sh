@@ -27,11 +27,20 @@ mkdir -p "$TILES" "$CATALOG"
 # have to name the levels the pyramid actually contains, and a script that
 # guesses its own output gets this wrong the moment the default moves -- which
 # it did: build_year.sh asked for band 8 against a pyramid of 4, 6 and 10.
-BASE_RES="${BASE_RES:-10}"
+BASE_RES="${BASE_RES:-8}"
+OVERVIEW="${OVERVIEW:-5}"
+# Raw detections from z9 rather than z10: r8 cells are already coarse by then,
+# and the points are what a year archive is for.
+POINTS_Z="${POINTS_Z:-9}"
 
-echo "[$YEAR] aggregate + tile (base r$BASE_RES)"
+# r5 -> r8 -> points, matching the all-time archive band for band, so switching
+# between them at a given zoom does not change the cell size under the cursor.
+# That was the whole point of unifying them: four different schemes meant the
+# map visibly coarsened when the timeline crossed an archive boundary.
+echo "[$YEAR] aggregate + tile (r$OVERVIEW -> r$BASE_RES -> points z$POINTS_Z)"
 python3 tools/firms_aggregate.py --data "$DATA" --out "$WORK" \
-  --tiles "$TILES" --year "$YEAR" --resolution "$BASE_RES" --levels 6,4
+  --tiles "$TILES" --year "$YEAR" --resolution "$BASE_RES" \
+  --levels "$OVERVIEW" --features-min-zoom "$POINTS_Z" --cumulative
 
 # --band takes the a5 level and the aggregate it was tiled from. The zoom range
 # each level covers is read from the archive, never passed in, so the breaks
@@ -39,11 +48,15 @@ python3 tools/firms_aggregate.py --data "$DATA" --out "$WORK" \
 echo "[$YEAR] class breaks"
 python3 tools/make_breaks.py "$ARCHIVE" \
   --band "$BASE_RES:$WORK/cells.parquet" \
-  --band "6:$WORK/cells_r6.parquet" \
-  --band "4:$WORK/cells_r4.parquet"
+  --band "$OVERVIEW:$WORK/cells_r$OVERVIEW.parquet"
 
 echo "[$YEAR] styles"
 python3 tools/make_styles.py "$ARCHIVE" \
   --out "$CATALOG/styles" --tiles "./fire-$YEAR.pmtiles" --suffix ", $YEAR"
+
+# The declared axis is what lets a viewer draw the timeline without inferring
+# it from column names, and re-tiling silently drops it.
+echo "[$YEAR] declared axis"
+python3 tools/make_timeline.py "$ARCHIVE"
 
 echo "[$YEAR] done: $ARCHIVE"

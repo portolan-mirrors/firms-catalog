@@ -72,6 +72,8 @@ def main() -> int:
     ap.add_argument("--resolution", type=int)
     ap.add_argument("--levels")
     ap.add_argument("--features-min-zoom", type=int, default=FEATURES_MIN_ZOOM)
+    ap.add_argument("--cumulative", action="store_true",
+                    help="add running-total columns for flat-cost selections")
     ap.add_argument("--year", type=int,
                     help="build one calendar year: reads only that partition "
                          "and names the archive fire-<year>.pmtiles")
@@ -148,6 +150,17 @@ def main() -> int:
          "--geoparquet-version", "2.0", "--compression", "zstd",
          "--compression-level", str(ZSTD_LEVEL)])
     fixed.replace(combined)
+
+    # Running totals along the time axis, so the map's paint expression is a
+    # difference rather than a sum over the selected buckets. Without them a
+    # fifty-day selection re-reads fifty properties per cell per frame and a
+    # year archive drags at 33 ms a frame; with them the cost is flat in the
+    # selection width. Costs roughly 4x the file, which only matters if bytes
+    # are the constraint rather than interaction.
+    if a.cumulative:
+        print("[cumulative] running totals")
+        run(["python3", str(Path(__file__).with_name("make_cumulative.py")),
+             str(combined), "--out", str(combined)], quiet=False)
 
     print("[overview] rolling up")
     run(["gpio", "process", "overview", str(combined), "--levels", a.levels, "--force"],
