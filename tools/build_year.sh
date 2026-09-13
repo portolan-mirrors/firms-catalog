@@ -23,16 +23,22 @@ ARCHIVE="$TILES/fire-$YEAR.pmtiles"
 
 mkdir -p "$TILES" "$CATALOG"
 
-echo "[$YEAR] aggregate + tile"
+# Pin the base resolution rather than inherit the default. The breaks below
+# have to name the levels the pyramid actually contains, and a script that
+# guesses its own output gets this wrong the moment the default moves -- which
+# it did: build_year.sh asked for band 8 against a pyramid of 4, 6 and 10.
+BASE_RES="${BASE_RES:-10}"
+
+echo "[$YEAR] aggregate + tile (base r$BASE_RES)"
 python3 tools/firms_aggregate.py --data "$DATA" --out "$WORK" \
-  --tiles "$TILES" --year "$YEAR"
+  --tiles "$TILES" --year "$YEAR" --resolution "$BASE_RES" --levels 6,4
 
 # --band takes the a5 level and the aggregate it was tiled from. The zoom range
 # each level covers is read from the archive, never passed in, so the breaks
 # cannot disagree with the geometry they describe.
 echo "[$YEAR] class breaks"
 python3 tools/make_breaks.py "$ARCHIVE" \
-  --band "8:$WORK/cells.parquet" \
+  --band "$BASE_RES:$WORK/cells.parquet" \
   --band "6:$WORK/cells_r6.parquet" \
   --band "4:$WORK/cells_r4.parquet"
 
