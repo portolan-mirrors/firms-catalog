@@ -24,6 +24,7 @@ second request.
 from __future__ import annotations
 
 import argparse
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -182,6 +183,12 @@ def main() -> int:
         print(f"  {archive} ({mb:,.1f} MB)")
         run(["python3", str(Path(__file__).with_name("make_timeline.py")),
              str(archive)], quiet=False)
+
+    # The staged pivot input is about a gigabyte per year and the features band
+    # reads it during tiling, so it can only go once everything above is done.
+    # Leaving it behind is harmless once and fills the disk across a backfill:
+    # twenty-six years is twenty-six gigabytes of nothing.
+    shutil.rmtree(tmp, ignore_errors=True)
     return 0
 
 
