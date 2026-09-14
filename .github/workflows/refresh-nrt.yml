@@ -40,7 +40,10 @@ jobs:
       - name: Install tooling
         run: |
           set -euo pipefail
-          pip install --quiet duckdb boto3 'rashid>=0.1.8,<0.2.0' \
+          # stac-check belongs here too: the validation gate runs before the
+          # upload and refuses to pass when it is missing rather than reporting
+          # a green it did not earn, so leaving it out fails the job outright.
+          pip install --quiet duckdb boto3 'rashid>=0.1.8,<0.2.0' stac-check \
             'git+https://github.com/geoparquet/geoparquet-io.git@main'
           sudo apt-get update -qq && sudo apt-get install -y -qq tippecanoe
           # make_timeline.py and make_breaks.py write archive metadata with
