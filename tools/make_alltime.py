@@ -27,9 +27,15 @@ from pathlib import Path
 import duckdb
 
 PUBLIC = "https://data.source.coop/portolan-mirrors/firms-catalog/detections"
-BASE_RES = 6
-OVERVIEW = 4
+# The years ship r5@z0-5 and r8@z6-8. All-time matches that so a cell does not
+# change size when the archive switches under the user, and adds a finer band
+# below it, because all-time has no raw points to fall back on when you zoom.
+BASE_RES = 10
+OVERVIEWS = [8, 5]
 ZSTD_LEVEL = 22
+# Matches the year builds, so the band handover lands at the same zooms rather
+# than being pushed later by a tighter budget. See tools/firms_aggregate.py.
+MAX_TILE_KB = 8000
 
 
 def run(cmd: list[str]) -> None:
@@ -39,9 +45,13 @@ def run(cmd: list[str]) -> None:
         raise SystemExit(f"failed: {' '.join(cmd[:6])}")
 
 
-def year_cells(con, year: int, cache: Path) -> Path:
-    """One year aggregated to r6 with a month breakdown, cached on disk."""
-    out = cache / f"cells_{year}_m.parquet"
+def year_cells(con, year: int, cache: Path, res: int, source: str | None) -> Path:
+    """One year aggregated to `res` with a month breakdown, cached on disk.
+
+    The resolution is in the filename: a bank built at r8 and one built at r10
+    are different data, and sharing a name silently mixes them into a join.
+    """
+    out = cache / f"cells_{year}_m{res}.parquet"
     if out.exists():
         return out
     # Only geometry and the month are needed, so column pruning keeps this to
@@ -49,12 +59,14 @@ def year_cells(con, year: int, cache: Path) -> Path:
     # gpio names each pivot column after the value it saw, and the archive's
     # declared axis requires six digits.
     src = cache / f"{year}_min.parquet"
+    origin = (f"{source.rstrip('/')}/year={year}/detections.parquet" if source
+              else f"{PUBLIC}/year={year}/detections.parquet")
     con.execute(f"""
         COPY (SELECT geometry, strftime(acq_datetime, '%Y%m') AS month, frp
-              FROM read_parquet('{PUBLIC}/year={year}/detections.parquet'))
+              FROM read_parquet('{origin}'))
         TO '{src}' (FORMAT parquet, COMPRESSION zstd)""")
     run(["gpio", "process", "aggregate", "a5", str(src), str(out),
-         "--resolution", str(BASE_RES), "--metric", "sum:frp,avg:frp,max:frp",
+         "--resolution", str(res), "--metric", "sum:frp,avg:frp,max:frp",
          "--breakdown", "month", "--breakdown-limit", "12",
          "--out-geometry", "polygon", "--geoparquet-version", "2.0"])
     src.unlink(missing_ok=True)
@@ -115,7 +127,20 @@ def main() -> int:
     ap.add_argument("--catalog", default="catalog/detections")
     ap.add_argument("--skip-tiles", action="store_true",
                     help="build the joined parquet and stop")
+    ap.add_argument("--resolution", type=int, default=BASE_RES,
+                    help=f"base a5 level (default {BASE_RES})")
+    ap.add_argument("--levels", default=",".join(str(x) for x in OVERVIEWS),
+                    help=f"overview levels, coarsest last "
+                         f"(default {','.join(str(x) for x in OVERVIEWS)})")
+    ap.add_argument("--source",
+                    help="directory of year=YYYY/detections.parquet to read "
+                         "instead of the published copies")
     a = ap.parse_args()
+    res = a.resolution
+    overviews = [int(x) for x in a.levels.split(",")]
+    # The joined file is named for its base level for the same reason the
+    # per-year banks are: an r8 join and an r10 join are not interchangeable.
+    joined_name = f"alltime_r{res}.parquet"
 
     cache = Path(a.cache)
     cache.mkdir(parents=True, exist_ok=True)
@@ -125,42 +150,48 @@ def main() -> int:
     parts: dict[int, Path] = {}
     for y in parse_years(a.years):
         try:
-            parts[y] = year_cells(con, y, cache)
+            parts[y] = year_cells(con, y, cache, res, a.source)
             print(f"  {y}: {parts[y].stat().st_size / 1e6:5.2f} MB", flush=True)
         except Exception as exc:  # noqa: BLE001 - an unpublished year is normal
             print(f"  {y}: skipped ({str(exc)[:70]})", flush=True)
     if not parts:
         raise SystemExit("no years aggregated")
 
-    combined = cache / "alltime.parquet"
+    combined = cache / joined_name
     join_years(con, parts, combined)
     size = combined.stat().st_size / 1e6
     ncol = len(con.execute(f"DESCRIBE SELECT * FROM '{combined}'").fetchall())
     nrow = con.execute(f"SELECT count(*) FROM '{combined}'").fetchone()[0]
     print(f"\njoined {len(parts)} year(s): {nrow:,} cells x {ncol} cols "
           f"= {size:.1f} MB")
-    if size > 25:
-        print("  WARNING: far above the measured 7-8 MB. Stop and re-measure "
-              "before building on this.", file=sys.stderr)
+    # The 7-8 MB figure was measured at r6 with monthly columns. A finer base
+    # is legitimately much larger, so the guard scales with the level rather
+    # than flagging every r10 build as a regression.
+    budget = 25 * (4 ** max(0, res - 6))
+    if size > budget:
+        print(f"  WARNING: {size:.1f} MB is far above the {budget} MB expected "
+              f"at r{res}. Stop and re-measure before building on this.",
+              file=sys.stderr)
 
     if a.skip_tiles:
         return 0
 
     run(["gpio", "process", "overview", str(combined),
-         "--levels", str(OVERVIEW), "--force"])
+         "--levels", a.levels, "--force"])
 
     tiles = Path(a.tiles)
     tiles.mkdir(parents=True, exist_ok=True)
     archive = tiles / "alltime.pmtiles"
     run(["gpio", "pmtiles", "pyramid", str(combined), str(archive),
-         "--levels", str(OVERVIEW), "-f"])
+         "--levels", a.levels, "--max-tile-kb", str(MAX_TILE_KB), "-f"])
     print(f"  {archive} ({archive.stat().st_size / 1e6:.1f} MB)")
 
     here = Path(__file__).resolve().parent
     run(["python3", str(here / "make_timeline.py"), str(archive)])
-    run(["python3", str(here / "make_breaks.py"), str(archive),
-         "--band", f"{BASE_RES}:{combined}",
-         "--band", f"{OVERVIEW}:{cache / f'alltime_r{OVERVIEW}.parquet'}"])
+    bands = ["--band", f"{res}:{combined}"]
+    for ov in overviews:
+        bands += ["--band", f"{ov}:{combined.with_name(combined.stem + f'_r{ov}.parquet')}"]
+    run(["python3", str(here / "make_breaks.py"), str(archive), *bands])
     run(["python3", str(here / "make_styles.py"), str(archive),
          "--out", str(Path(a.catalog) / "styles-alltime"),
          "--tiles", "../alltime.pmtiles", "--suffix", ", all years"])
