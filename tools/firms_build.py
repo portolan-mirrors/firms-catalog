@@ -139,6 +139,18 @@ def main() -> int:
     for y in years:
         total += build_year(con, chunks, y, outdir, a.verbose, a.name)
     print(f"TOTAL {total:,} rows across {len(years)} year files", flush=True)
+    if total == 0:
+        # Chunks live in subdirectories of --chunks, one per feed; parquet
+        # sitting directly in it is silently invisible to candidates(). That
+        # reads as a clean run -- "TOTAL 0 rows", exit 0 -- while whatever the
+        # output already held stays there, so a refresh that wrote nothing
+        # looks identical to one that had nothing to write.
+        loose = [f.name for f in chunks.glob("*.parquet")]
+        hint = (f" ({len(loose)} parquet file(s) sit directly in {chunks}; "
+                f"chunks are read from subdirectories, so move them into one)"
+                if loose else "")
+        print(f"no rows matched: nothing was written{hint}", file=sys.stderr)
+        return 1
     return 0
 
 

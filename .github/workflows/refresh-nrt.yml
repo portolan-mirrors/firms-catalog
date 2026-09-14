@@ -39,9 +39,25 @@ jobs:
           python-version: "3.12"
       - name: Install tooling
         run: |
+          set -euo pipefail
           pip install --quiet duckdb boto3 'rashid>=0.1.8,<0.2.0' \
             'git+https://github.com/geoparquet/geoparquet-io.git@main'
           sudo apt-get update -qq && sudo apt-get install -y -qq tippecanoe
+          # make_timeline.py and make_breaks.py write archive metadata with
+          # `pmtiles edit`. Without the binary every hourly run got as far as
+          # building the tileset and then died on FileNotFoundError: 'pmtiles'.
+          #
+          # The release assets carry the version in their name, so there is no
+          # stable "latest" filename. Resolve the tag, then build the URL --
+          # guessing it returns an HTML 404 page, which tar reports only as
+          # "gzip: stdin: not in gzip format".
+          PMT=$(curl -sSf https://api.github.com/repos/protomaps/go-pmtiles/releases/latest \
+                | python3 -c 'import json,sys; print(json.load(sys.stdin)["tag_name"].lstrip("v"))')
+          curl -sSfL --retry 3 \
+            "https://github.com/protomaps/go-pmtiles/releases/download/v$PMT/go-pmtiles_${PMT}_Linux_x86_64.tar.gz" \
+            | sudo tar -xz -C /usr/local/bin pmtiles
+          tippecanoe --version
+          pmtiles version
 
       - name: Fetch the rolling window
         run: python3 tools/firms_nrt.py --window 7d --out ./staging/nrt-chunks
@@ -51,11 +67,15 @@ jobs:
           python3 tools/firms_build.py --chunks ./staging/nrt-chunks \
             --out ./staging/publish/detections --name live.parquet --memory 6GB
 
+      # r5 -> r8 -> points, the shape the year archives and all-time use. The
+      # rolling window was the last archive on its own scheme (r4/r6/r10), so
+      # cells changed size when the timeline crossed from "last 7 days" into a
+      # year, which is exactly what unifying the bands was meant to stop.
       - name: Rebuild aggregates and the combined tileset
         run: |
           python3 tools/firms_aggregate.py --data ./staging/publish/detections \
             --out ./staging/agg --tiles ./staging/publish \
-            --resolution 10 --levels 6,4
+            --resolution 8 --levels 5 --features-min-zoom 9
 
       # Breaks come before styles because the styles are generated FROM them.
       # The refresh rebuilds the archive from scratch every hour, so anything
@@ -65,9 +85,8 @@ jobs:
       - name: Class breaks and styles
         run: |
           python3 tools/make_breaks.py ./staging/publish/fire-latest.pmtiles \
-            --band "10:./staging/agg/cells.parquet" \
-            --band "6:./staging/agg/cells_r6.parquet" \
-            --band "4:./staging/agg/cells_r4.parquet"
+            --band "8:./staging/agg/cells.parquet" \
+            --band "5:./staging/agg/cells_r5.parquet"
           python3 tools/make_styles.py ./staging/publish/fire-latest.pmtiles \
             --out ./staging/publish/styles --tiles ../fire-latest.pmtiles \
             --suffix ", last 7 days"
