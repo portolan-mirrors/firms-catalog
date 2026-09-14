@@ -29,6 +29,7 @@ import re
 import shutil
 import subprocess
 import sys
+import time
 import tempfile
 from pathlib import Path
 
@@ -72,15 +73,21 @@ def metadata(path):
 
 
 def slim(src: Path, dst: Path, keep_going=False):
+    t0 = time.monotonic()
+    before_bytes = src.stat().st_size
     cols = [k for k in sample_keys(src) if CUMULATIVE.match(k)]
     if not cols:
-        print(f"[skip] {src.name}: no cumulative columns")
+        print(f"[skip] {src.name}: no cumulative columns", flush=True)
         if src != dst:
             shutil.copy2(src, dst)
         return False
 
     before = metadata(src)
-    with tempfile.TemporaryDirectory() as tmp:
+    # Scratch next to the destination, not in /tmp: these archives are around a
+    # gigabyte each, and a temp dir on another filesystem turns the final move
+    # into a full copy. Same filesystem makes it a rename.
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(dir=dst.parent) as tmp:
         joined = Path(tmp) / "joined.pmtiles"
         # -pk: keep tiles whatever their size. The band layout was already
         # chosen against a budget; re-imposing one here would silently drop
@@ -89,7 +96,7 @@ def slim(src: Path, dst: Path, keep_going=False):
         for c in cols:
             cmd += ["-x", c]
         cmd.append(str(src))
-        print(f"[join] {src.name}: dropping {len(cols)} cumulative columns")
+        print(f"[join] {src.name}: dropping {len(cols)} cumulative columns", flush=True)
         subprocess.run(cmd, check=True, capture_output=True)
 
         merged = dict(metadata(joined))
@@ -113,14 +120,15 @@ def slim(src: Path, dst: Path, keep_going=False):
         if missing:
             raise SystemExit(f"{src.name}: metadata lost after edit: {missing}")
 
-        dst.parent.mkdir(parents=True, exist_ok=True)
+        # Replace the source only once the join has been verified, so a failure
+        # anywhere above leaves the original archive untouched.
         shutil.move(str(joined), dst)
 
     kept = [k for k in sample_keys(dst) if CUMULATIVE.match(k)]
     if kept:
         raise SystemExit(f"{dst.name}: {len(kept)} cumulative columns survived")
-    print(f"[done] {dst.name}: {src.stat().st_size/1e9:.2f} GB -> "
-          f"{dst.stat().st_size/1e9:.2f} GB")
+    print(f"[done] {dst.name}: {before_bytes/1e9:.2f} GB -> "
+          f"{dst.stat().st_size/1e9:.2f} GB in {time.monotonic()-t0:.0f}s", flush=True)
     return True
 
 
@@ -141,7 +149,7 @@ def main():
             slim(src, dst, a.keep_going)
         except (subprocess.CalledProcessError, SystemExit) as exc:
             msg = exc.stderr.decode()[-400:] if isinstance(exc, subprocess.CalledProcessError) else str(exc)
-            print(f"[fail] {src.name}: {msg}", file=sys.stderr)
+            print(f"[fail] {src.name}: {msg}", file=sys.stderr, flush=True)
             failed.append(src.name)
             if not a.keep_going:
                 return 1
