@@ -83,7 +83,15 @@ def main() -> int:
     ap.add_argument("--max-tile-kb", type=int, default=MAX_TILE_KB,
                     help="band-handover budget; lower keeps coarse cells longer")
     ap.add_argument("--cumulative", action="store_true",
-                    help="add running-total columns for flat-cost selections")
+                    help="add count_c<key> running totals. Off by default: the "
+                         "running totals make a wide selection cost two property "
+                         "reads instead of one per bucket, but they double the "
+                         "attributes on every feature, and being large monotonic "
+                         "integers they compress far worse than the ~95%%-zero "
+                         "plain counts. Measured on 2023 at z2, carrying both put "
+                         "the tiles at 8.41 MB against 2.63 MB for the plain "
+                         "columns alone, and the map is bound by tile weight, not "
+                         "by expression arithmetic. See tools/slim_archive.py.")
     ap.add_argument("--year", type=int,
                     help="build one calendar year: reads only that partition "
                          "and names the archive fire-<year>.pmtiles")

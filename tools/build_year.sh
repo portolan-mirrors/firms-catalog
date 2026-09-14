@@ -40,7 +40,7 @@ POINTS_Z="${POINTS_Z:-9}"
 echo "[$YEAR] aggregate + tile (r$OVERVIEW -> r$BASE_RES -> points z$POINTS_Z)"
 python3 tools/firms_aggregate.py --data "$DATA" --out "$WORK" \
   --tiles "$TILES" --year "$YEAR" --resolution "$BASE_RES" \
-  --levels "$OVERVIEW" --features-min-zoom "$POINTS_Z" --cumulative
+  --levels "$OVERVIEW" --features-min-zoom "$POINTS_Z"
 
 # --band takes the a5 level and the aggregate it was tiled from. The zoom range
 # each level covers is read from the archive, never passed in, so the breaks
