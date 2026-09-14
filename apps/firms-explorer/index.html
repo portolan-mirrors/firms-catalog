@@ -172,6 +172,27 @@ const UNIT_ADVERB = {day: "daily", month: "monthly"};
 // which leaves PMTiles parsing megabytes of the wrong bytes and rendering
 // nothing, with no error to explain it.
 const OVERRIDDEN = new Set();
+
+// Point the app at a whole directory of locally built year archives:
+//
+//   ?localyears=2000-2026&localbase=./years
+//
+// Years are normally discovered from the catalog, which only lists what is
+// published. This is how you drive a full local build before any of it is
+// uploaded, without naming twenty-seven archives on the URL.
+const _ly = qs.get("localyears");
+if (_ly) {
+  const base = (qs.get("localbase") || ".").replace(/\/$/, "");
+  const [lo, hi] = _ly.includes("-") ? _ly.split("-").map(Number)
+                                     : [Number(_ly), Number(_ly)];
+  for (let y = hi; y >= lo; y--) {
+    const id = String(y);
+    ARCHIVES[id] = {label: `${y} · daily`, url: `${base}/fire-${y}.pmtiles`,
+                    presets: [["7d", 7], ["30d", 30], ["90d", 90], ["all", null]]};
+    OVERRIDDEN.add(id);
+    if (!ORDER.includes(id)) ORDER.push(id);
+  }
+}
 for (const spec of qs.getAll("add")) {
   const i = spec.indexOf("|");
   if (i < 1) continue;
