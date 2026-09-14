@@ -26,6 +26,7 @@ on:
 
 permissions:
   contents: read
+  id-token: write
 
 jobs:
   year:
@@ -125,10 +126,17 @@ jobs:
           rm -f ./staging/publish/detections/year=${{ matrix.year }}/detections.parquet
           df -h / | tail -1
 
+      # Source Cooperative's bucket is reached by assuming a role it has
+      # approved, so there is no long-lived key to leak or rotate. GitHub
+      # mints the token per job; the role's trust policy admits any repo
+      # under the portolan-mirrors org, so other mirrors reuse it unchanged.
+      - name: Assume the Source Cooperative write role
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::939788573396:role/source-coop-portolan-mirrors
+          role-session-name: ${{ github.event.repository.name }}-${{ github.run_id }}
+          aws-region: us-west-2
+
       - name: Upload
         if: ${{ !inputs.dry_run }}
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.SOURCE_COOP_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.SOURCE_COOP_SECRET_ACCESS_KEY }}
-          AWS_SESSION_TOKEN: ${{ secrets.SOURCE_COOP_SESSION_TOKEN }}
         run: python3 tools/upload_data.py --confirm --data-dir ./staging/publish

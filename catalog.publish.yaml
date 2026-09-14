@@ -6,8 +6,14 @@
 # Source Cooperative serves these objects. data.source.coop returns raw bytes.
 # source.coop renders the human-facing page.
 
-# The S3 URI uploads are written to. Copy it from your storage provider.
-write_prefix: s3://portolan-mirrors/firms-catalog
+# The S3 URI uploads are written to.
+#
+# This is the real bucket behind Source Cooperative, not the data.source.coop
+# gateway, because writes now go through an IAM role Source Cooperative has
+# approved rather than per-account keys it issues. The two are the same bytes
+# through different doors: the repository is a key prefix here, where at the
+# gateway it was the bucket name.
+write_prefix: s3://us-west-2.opendata.source.coop/portolan-mirrors/firms-catalog
 
 # The public base URL that serves write_prefix. Every href in the catalog is
 # built from this, so it goes in the STAC JSON and write_prefix does not.
@@ -15,14 +21,15 @@ public_base: https://data.source.coop/portolan-mirrors/firms-catalog
 
 region: us-west-2
 
-# Source Cooperative serves S3 at its own host, not AWS S3. Without this the
-# publisher silently targets AWS and fails with NoSuchBucket.
-endpoint_url: https://data.source.coop
+# No endpoint_url: write_prefix names the bucket in AWS S3 directly, so the
+# default endpoint is the correct one. Pointing this at data.source.coop while
+# write_prefix names the real bucket would send every request to the gateway
+# under a bucket name that does not exist there.
 
-# The named AWS profile the publisher uses. Optional. Leave it commented out
-# to use the default boto3 session. Source Cooperative issues per-account
-# credentials, so set the profile name you stored them under.
-profile: source-coop
+# The named AWS profile the publisher uses. Optional -- CI leaves it unused,
+# because configure-aws-credentials puts the assumed role in the environment
+# and publish.py prefers that whenever AWS_ACCESS_KEY_ID is set.
+profile: portolan-mirrors
 
 # The directory that IS the published catalog, synced 1:1 to write_prefix.
 # Nothing outside it is ever uploaded.
