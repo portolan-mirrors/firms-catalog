@@ -1,0 +1,139 @@
+name: consolidate-year
+
+# Fold the rolling window into the current year's archive, and rebuild that
+# year's tileset from it.
+#
+# refresh-nrt rewrites live.parquet and nothing else, so the year's
+# detections.parquet only moves when a human runs a year build. The window is
+# a fixed span back from now: it slides forward a day per day and the archive
+# does not, so once they stop overlapping every detection in between is in no
+# published file. Nothing fails -- the window still carries rows, the
+# collection's total still climbs, and the hole sits behind them unreported.
+#
+# Daily, against a seven-day window, so six days of margin have to be missed
+# before anything is lost. merge_live.py refuses outright if the overlap has
+# already closed rather than quietly writing across the hole.
+
+on:
+  schedule:
+    # 03:40 UTC: off the hour, where GitHub's scheduler is least contended, and
+    # in the quietest part of the NRT feeds' day.
+    - cron: "40 3 * * *"
+  workflow_dispatch:
+    inputs:
+      year:
+        description: "Year to consolidate (blank = current UTC year)"
+        required: false
+        default: ""
+      allow_gap:
+        description: "Merge even if the window no longer reaches the archive"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  id-token: write
+
+# Shared with refresh-nrt: both write year=<Y> objects, and two of them
+# uploading at once would interleave a half-built archive with a good one.
+concurrency:
+  group: catalog-write
+  cancel-in-progress: false
+
+jobs:
+  consolidate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install tooling
+        run: |
+          set -euo pipefail
+          pip install --quiet duckdb boto3 'rashid>=0.1.8,<0.2.0' stac-check \
+            'git+https://github.com/geoparquet/geoparquet-io.git@main'
+          sudo apt-get update -qq && sudo apt-get install -y -qq tippecanoe
+          PMT=$(curl -sSf https://api.github.com/repos/protomaps/go-pmtiles/releases/latest \
+                | python3 -c 'import json,sys; print(json.load(sys.stdin)["tag_name"].lstrip("v"))')
+          curl -sSfL --retry 3 \
+            "https://github.com/protomaps/go-pmtiles/releases/download/v$PMT/go-pmtiles_${PMT}_Linux_x86_64.tar.gz" \
+            | sudo tar -xz -C /usr/local/bin pmtiles
+          tippecanoe --version
+          pmtiles version
+
+      - name: Pick the year
+        id: y
+        run: |
+          Y="${{ inputs.year }}"
+          echo "year=${Y:-$(date -u +%Y)}" >> "$GITHUB_OUTPUT"
+
+      - name: Fetch the published year and the rolling window
+        env:
+          Y: ${{ steps.y.outputs.year }}
+        run: |
+          set -euo pipefail
+          mkdir -p "./staging/publish/detections/year=$Y"
+          B=https://data.source.coop/portolan-mirrors/firms-catalog/detections
+          # Both parts come from the bucket rather than being rebuilt: the
+          # archive is the thing being extended, and re-deriving it from
+          # scratch every day would re-fetch a year of NRT for no reason.
+          for f in detections.parquet live.parquet; do
+            curl -sSfL --retry 3 -o "./staging/publish/detections/year=$Y/$f" \
+              "$B/year=$Y/$f"
+            ls -la "./staging/publish/detections/year=$Y/$f"
+          done
+
+      - name: Fold the window into the year
+        env:
+          Y: ${{ steps.y.outputs.year }}
+        run: |
+          python3 tools/merge_live.py --data ./staging/publish/detections \
+            --year "$Y" --memory 6GB \
+            ${{ inputs.allow_gap && '--allow-gap' || '' }}
+
+      - name: Rebuild the year's tileset
+        env:
+          Y: ${{ steps.y.outputs.year }}
+          DATA: ./staging/publish/detections
+          WORK: ./staging/agg
+          TILES: ./staging/publish/detections/year=${{ steps.y.outputs.year }}
+          CATALOG: catalog/detections/year=${{ steps.y.outputs.year }}
+        run: bash tools/build_year.sh "$Y"
+
+      - name: Regenerate collection metadata
+        run: |
+          cp catalog/detections/detections.thumb.jpg ./staging/publish/ || true
+          python3 tools/make_collection.py --data ./staging/publish/detections \
+            --out catalog/detections/collection.json
+
+      - name: Validate before uploading anything
+        env:
+          CI_LIGHT: "1"
+        run: python3 tests/run_all.py
+
+      - name: Assume the Source Cooperative write role
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::939788573396:role/source-coop-portolan-mirrors
+          role-session-name: ${{ github.event.repository.name }}-${{ github.run_id }}
+          aws-region: us-west-2
+
+      - name: Upload data
+        run: python3 tools/upload_data.py --confirm --data-dir ./staging/publish
+
+      # The item carries the year's row count and extent, read from the
+      # published file, so it can only be regenerated once the upload lands.
+      - name: Refresh the item and the collection
+        env:
+          Y: ${{ steps.y.outputs.year }}
+          FIRMS_MAP_KEY: ${{ secrets.FIRMS_MAP_KEY }}
+        run: |
+          python3 tools/make_items.py --catalog catalog --key "$FIRMS_MAP_KEY" --years "$Y"
+          python3 tools/make_collection.py --data ./staging/publish/detections \
+            --out catalog/detections/collection.json
+
+      - name: Publish catalog metadata
+        run: python3 tools/publish.py --confirm

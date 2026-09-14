@@ -24,8 +24,10 @@ permissions:
   contents: read
   id-token: write
 
+# Shared with consolidate-year: both write year=<Y> objects, and two of them
+# uploading at once would interleave a half-built archive with a good one.
 concurrency:
-  group: refresh-nrt
+  group: catalog-write
   cancel-in-progress: false
 
 jobs:
