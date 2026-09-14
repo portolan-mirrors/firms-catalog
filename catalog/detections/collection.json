@@ -10,7 +10,7 @@
   ],
   "id": "detections",
   "title": "Active Fire Detections (MODIS and VIIRS)",
-  "description": "Global satellite active fire and thermal anomaly detections from NASA FIRMS, as one year-partitioned GeoParquet 2.0 table of 616,318,870 rows covering 2000 to 2026. Carries MODIS (Terra and Aqua, 1 km) and VIIRS (Suomi-NPP, NOAA-20, NOAA-21, 375 m). Near-real-time rows are appended hourly and replaced by science-quality rows as NASA finalizes them; the `quality` column says which is which. Rows are ordered by month and then by a Hilbert index, so a reader prunes on both time and space. Read the [agent guide](AGENTS.md) before querying: `confidence` is encoded differently per instrument and `type` is NULL for all near-real-time rows.",
+  "description": "Global satellite active fire and thermal anomaly detections from NASA FIRMS, as one year-partitioned GeoParquet 2.0 table of 631,285,603 rows covering 2000 to 2026. Carries MODIS (Terra and Aqua, 1 km) and VIIRS (Suomi-NPP, NOAA-20, NOAA-21, 375 m). Near-real-time rows are appended hourly and replaced by science-quality rows as NASA finalizes them; the `quality` column says which is which. Rows are ordered by month and then by a Hilbert index, so a reader prunes on both time and space. Read the [agent guide](AGENTS.md) before querying: `confidence` is encoded differently per instrument and `type` is NULL for all near-real-time rows.",
   "license": "CC0-1.0",
   "keywords": [
     "fire",
@@ -23,7 +23,7 @@
     "FIRMS",
     "near real-time"
   ],
-  "updated": "2026-09-14T12:09:35Z",
+  "updated": "2026-09-14T16:14:15Z",
   "providers": [
     {
       "name": "NASA LANCE FIRMS",
@@ -57,7 +57,7 @@
       "interval": [
         [
           "2000-11-01T00:13:00Z",
-          "2026-09-08T22:52:00Z"
+          "2026-09-14T12:34:00Z"
         ]
       ]
     }
@@ -74,7 +74,7 @@
   "partition:file_count": 28,
   "partition:glob": "s3://portolan-mirrors/firms-catalog/detections/year=*/*.parquet",
   "table:primary_geometry": "geometry",
-  "table:row_count": 616318870,
+  "table:row_count": 631285603,
   "table:columns": [
     {
       "name": "geometry",
@@ -181,8 +181,8 @@
         "style",
         "default"
       ],
-      "file:size": 2258,
-      "file:checksum": "12206d58c9bbb7b49c3d5d786eff85a296f350063172d33eb98d2c096c1012ce869c"
+      "file:size": 2259,
+      "file:checksum": "12204142cf52031775235d36e04e311552549aa06fe0c733de98f9e795e306b28926"
     },
     "style-avg-frp": {
       "href": "./styles/avg-frp.json",
@@ -191,8 +191,8 @@
       "roles": [
         "style"
       ],
-      "file:size": 2264,
-      "file:checksum": "1220517c98920b8aa6632ec4e390207c78432dd1068a133a619cfcd4861b008e6aaf"
+      "file:size": 2257,
+      "file:checksum": "122024379aa1aedda35889a75a8f028b9f93653af8a9e5df6983635851b9326eb230"
     },
     "pmtiles": {
       "href": "./fire-latest.pmtiles",

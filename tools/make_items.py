@@ -215,12 +215,24 @@ def main() -> int:
         flag = f"   PENDING: {','.join(short)}" if short else ""
         print(f"  {y}: {st['rows']:>11,} rows  {','.join(sensors)}{flag}")
 
-    # Collection links: one per item, replacing any previous set.
-    coll["links"] = [l for l in coll["links"] if l.get("rel") != "item"]
+    # Collection links: one per item this run wrote, plus the ones it did not
+    # touch. Replacing the whole set is only correct for a full run -- with
+    # --years 2026 it dropped the other twenty-six, leaving a collection that
+    # listed one item out of twenty-seven. No error: the years were still
+    # published, still had items on disk, and nothing but the conformance gate
+    # noticed the catalog had stopped pointing at them.
+    kept = [l for l in coll["links"]
+            if l.get("rel") == "item"
+            and not any(f"year={y}/" in l.get("href", "") for y in years)]
+    coll["links"] = [l for l in coll["links"] if l.get("rel") != "item"] + kept
     for y in written:
         coll["links"].append({
             "rel": "item", "href": f"./year={y}/{y}.json",
             "type": "application/geo+json", "title": f"Active fire detections, {y}"})
+    # Stable order regardless of which subset was rebuilt.
+    items = sorted((l for l in coll["links"] if l.get("rel") == "item"),
+                   key=lambda l: l.get("href", ""))
+    coll["links"] = [l for l in coll["links"] if l.get("rel") != "item"] + items
     coll_path.write_text(json.dumps(coll, indent=2) + "\n")
     print(f"\n  {len(written)} item(s) written, {len(skipped)} year(s) not published yet")
     if skipped:

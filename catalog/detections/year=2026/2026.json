@@ -7,8 +7,8 @@
   "id": "2026",
   "collection": "detections",
   "bbox": [
-    -179.8254,
-    -86.5982,
+    -179.982,
+    -88.4717,
     179.9413,
     82.8202
   ],
@@ -17,24 +17,24 @@
     "coordinates": [
       [
         [
-          -179.82544,
-          -86.59821
+          -179.98198,
+          -88.47167
         ],
         [
           179.9413,
-          -86.59821
+          -88.47167
         ],
         [
           179.9413,
           82.8202
         ],
         [
-          -179.82544,
+          -179.98198,
           82.8202
         ],
         [
-          -179.82544,
-          -86.59821
+          -179.98198,
+          -88.47167
         ]
       ]
     ]
@@ -43,8 +43,8 @@
     "title": "Active fire detections, 2026",
     "datetime": null,
     "start_datetime": "2026-01-01T00:07:00Z",
-    "end_datetime": "2026-09-08T22:52:00Z",
-    "table:row_count": 24698416,
+    "end_datetime": "2026-09-14T12:34:00Z",
+    "table:row_count": 41621652,
     "firms:sensors": [
       "MODIS",
       "VIIRS_NOAA20",
@@ -60,7 +60,7 @@
       "roles": [
         "data"
       ],
-      "file:size": 423360434
+      "file:size": 732660389
     },
     "pmtiles": {
       "href": "./fire-2026.pmtiles",
@@ -70,7 +70,7 @@
         "visual",
         "tiles"
       ],
-      "file:size": 549089218
+      "file:size": 684566716
     },
     "style-avg-frp": {
       "href": "./styles/avg-frp.json",
@@ -80,7 +80,7 @@
         "style"
       ],
       "file:size": 2249,
-      "file:checksum": "1220a2219aeead151b373290a70e0d4e1c1d21541e2c22ca5d5d08f1cb735c20f13f"
+      "file:checksum": "1220f063771c675bc82165cd01f29bbd25c62fd4316ee6195d1383e5371dd376ea7c"
     },
     "style-default": {
       "href": "./styles/default.json",
@@ -89,8 +89,8 @@
       "roles": [
         "style"
       ],
-      "file:size": 2261,
-      "file:checksum": "1220fb1dd2d2172d7f879e28f404d166f39bdbfb62f9f246dad9a85859d50b528bd9"
+      "file:size": 2264,
+      "file:checksum": "1220ccde9569f881dfdc802d76f0a277e411417ae3d1aa0ba8e5feaa2b08985a5d54"
     }
   },
   "links": [

@@ -103,22 +103,54 @@ def main() -> int:
                 Path(a.out).parent.glob("year=*/[0-9]*.json")}
     counted = [f for f in files
                if f.name != "detections.parquet" or f.parent.name not in itemised]
+
+    # live.parquet overlaps its year's archive part rather than following it.
+    # The rolling window is a fixed span back from now, so it re-reports the
+    # days the archive already holds -- normally the last day or two, and all
+    # of them whenever the archive has just been rebuilt from the same feed.
+    # Counting it whole inflated the collection by that overlap every time.
+    # Each live file is therefore counted only past its year's archive.
+    cutoffs = {}
+    for f in files:
+        if f.name != "live.parquet":
+            continue
+        year = f.parent.name
+        archive = f.parent / "detections.parquet"
+        if archive.exists():
+            cutoffs[str(f)] = ("file", str(archive))
+        elif year in itemised:
+            item = next(Path(a.out).parent.glob(f"{year}/[0-9]*.json"), None)
+            if item:
+                end = json.loads(item.read_text())["properties"].get("end_datetime")
+                if end:
+                    cutoffs[str(f)] = ("value", end)
     if not counted:
         # Every local file is already described by an item; the extent comes
         # entirely from them, so seed the scan with an empty result.
         minx = miny = maxx = maxy = None
         t0 = t1 = None
         n = 0
-    glob_all = ",".join(f"'{f}'" for f in counted)
-
     con = duckdb.connect()
     con.execute("INSTALL spatial; LOAD spatial;")
     if counted:
+        # One SELECT per file rather than one over the list, because the live
+        # files carry a WHERE the archive files must not.
+        selects = []
+        for f in counted:
+            where = ""
+            cut = cutoffs.get(str(f))
+            if cut and cut[0] == "file":
+                where = (" WHERE acq_datetime > (SELECT max(acq_datetime) "
+                         f"FROM read_parquet('{cut[1]}'))")
+            elif cut and cut[0] == "value":
+                where = f" WHERE acq_datetime > TIMESTAMP '{cut[1]}'"
+            selects.append(f"SELECT * FROM read_parquet('{f}'){where}")
+        union = " UNION ALL ".join(selects)
         minx, miny, maxx, maxy, t0, t1, n = con.execute(f"""
         SELECT min(ST_X(geometry)), min(ST_Y(geometry)),
                max(ST_X(geometry)), max(ST_Y(geometry)),
                min(acq_datetime), max(acq_datetime), count(*)
-        FROM read_parquet([{glob_all}])""").fetchone()
+        FROM ({union})""").fetchone()
     years = [int(f.parent.name.split("=")[1]) for f in files]
 
     # Widen the extent to cover the published items.
