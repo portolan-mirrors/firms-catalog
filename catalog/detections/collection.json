@@ -10,7 +10,7 @@
   ],
   "id": "detections",
   "title": "Active Fire Detections (MODIS and VIIRS)",
-  "description": "Global satellite active fire and thermal anomaly detections from NASA FIRMS, as one year-partitioned GeoParquet 2.0 table of 631,285,603 rows covering 2000 to 2026. Carries MODIS (Terra and Aqua, 1 km) and VIIRS (Suomi-NPP, NOAA-20, NOAA-21, 375 m). Near-real-time rows are appended hourly and replaced by science-quality rows as NASA finalizes them; the `quality` column says which is which. Rows are ordered by month and then by a Hilbert index, so a reader prunes on both time and space. Read the [agent guide](AGENTS.md) before querying: `confidence` is encoded differently per instrument and `type` is NULL for all near-real-time rows.",
+  "description": "Global satellite active fire and thermal anomaly detections from NASA FIRMS, as one year-partitioned GeoParquet 2.0 table of 631,316,915 rows covering 2000 to 2026. Carries MODIS (Terra and Aqua, 1 km) and VIIRS (Suomi-NPP, NOAA-20, NOAA-21, 375 m). Near-real-time rows are appended hourly and replaced by science-quality rows as NASA finalizes them; the `quality` column says which is which. Rows are ordered by month and then by a Hilbert index, so a reader prunes on both time and space. Read the [agent guide](AGENTS.md) before querying: `confidence` is encoded differently per instrument and `type` is NULL for all near-real-time rows.",
   "license": "CC0-1.0",
   "keywords": [
     "fire",
@@ -23,7 +23,7 @@
     "FIRMS",
     "near real-time"
   ],
-  "updated": "2026-09-14T16:14:15Z",
+  "updated": "2026-09-14T20:45:24Z",
   "providers": [
     {
       "name": "NASA LANCE FIRMS",
@@ -57,7 +57,7 @@
       "interval": [
         [
           "2000-11-01T00:13:00Z",
-          "2026-09-14T12:34:00Z"
+          "2026-09-14T17:49:00Z"
         ]
       ]
     }
@@ -74,7 +74,7 @@
   "partition:file_count": 28,
   "partition:glob": "s3://portolan-mirrors/firms-catalog/detections/year=*/*.parquet",
   "table:primary_geometry": "geometry",
-  "table:row_count": 631285603,
+  "table:row_count": 631316915,
   "table:columns": [
     {
       "name": "geometry",
@@ -228,6 +228,16 @@
       ],
       "file:size": 64637,
       "file:checksum": "1220d7a7dba00968a029dc360e5e41c8924c6caa8d5ae65cfe2c9e6a1b4f585aa490"
+    },
+    "logo": {
+      "href": "./detections.logo.png",
+      "type": "image/png",
+      "title": "FIRMS mirror logo",
+      "roles": [
+        "logo"
+      ],
+      "file:size": 78425,
+      "file:checksum": "1220d2eb364e6cd553be966a05743e917c573ac7b8ad2847ece835a545b01d32b3f3"
     }
   },
   "links": [

@@ -87,6 +87,8 @@ def main() -> int:
     # the name lives in one place instead of drifting between the two tools.
     ap.add_argument("--styles", default="default.json,avg-frp.json")
     ap.add_argument("--thumbnail", default="detections.thumb.jpg")
+    ap.add_argument("--logo", default="detections.logo.png",
+                    help="collection logo; empty to omit")
     a = ap.parse_args()
 
     data = Path(a.data)
@@ -230,6 +232,18 @@ def main() -> int:
         "roles": ["thumbnail"],
         **file_meta(a.thumbnail),
     }
+
+    # Distinct from the thumbnail on purpose: the thumbnail is a render of the
+    # data and changes with it, while the logo identifies the catalogue and
+    # does not. Clients that show one rarely want the other in its place.
+    if a.logo and (Path(a.out).parent / a.logo).exists():
+        assets["logo"] = {
+            "href": f"./{a.logo}",
+            "type": "image/png",
+            "title": "FIRMS mirror logo",
+            "roles": ["logo"],
+            **file_meta(a.logo),
+        }
 
     col = {
         "type": "Collection",
