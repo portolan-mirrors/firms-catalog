@@ -172,6 +172,27 @@ const UNIT_ADVERB = {day: "daily", month: "monthly"};
 // which leaves PMTiles parsing megabytes of the wrong bytes and rendering
 // nothing, with no error to explain it.
 const OVERRIDDEN = new Set();
+
+// Point the app at a whole directory of locally built year archives:
+//
+//   ?localyears=2000-2026&localbase=./years
+//
+// Years are normally discovered from the catalog, which only lists what is
+// published. This is how you drive a full local build before any of it is
+// uploaded, without naming twenty-seven archives on the URL.
+const _ly = qs.get("localyears");
+if (_ly) {
+  const base = (qs.get("localbase") || ".").replace(/\/$/, "");
+  const [lo, hi] = _ly.includes("-") ? _ly.split("-").map(Number)
+                                     : [Number(_ly), Number(_ly)];
+  for (let y = hi; y >= lo; y--) {
+    const id = String(y);
+    ARCHIVES[id] = {label: `${y} · daily`, url: `${base}/fire-${y}.pmtiles`,
+                    presets: [["7d", 7], ["30d", 30], ["90d", 90], ["all", null]]};
+    OVERRIDDEN.add(id);
+    if (!ORDER.includes(id)) ORDER.push(id);
+  }
+}
 for (const spec of qs.getAll("add")) {
   const i = spec.indexOf("|");
   if (i < 1) continue;
@@ -562,55 +583,64 @@ function currentStops(cols) {
 // tile, so coalesce to at most one update per frame. Note this sets paint
 // properties only: a setFilter would re-layout the layer, which is far more
 // expensive and visibly janky mid-drag.
-// Repainting the map costs O(cells x selected buckets) inside MapLibre's
-// expression evaluator, and a drag emits one change per pointer move. At a
-// wide selection that produced frames of up to 298 ms and the map crawled
-// through the backlog long after the pointer stopped.
+// Pace repaints by what the map can actually finish, not by a constant.
 //
-// Precomputing the sums in JS and feeding them through feature-state was
-// measured and was far worse -- 16 s for the same drag -- because setting
-// state on every cached cell every frame costs more than the expression it
-// replaces. So the map is throttled instead of made cleverer: at most one
-// repaint per MAP_THROTTLE_MS while a gesture is live, and always one final
-// repaint when it ends, which is the only frame the user waits to see. The
-// timeline keeps redrawing every frame, so the gesture still feels immediate.
-const MAP_THROTTLE_MS = 60;
-// Feature state costs more per update than a paint expression: changing it
-// dirties the tile, and the slim archive deliberately puts all 22k cells in
-// one. Throttling trades stall frequency against stall length, and measurement
-// says the middle is the least bad place to sit:
+// This has been wrong in both directions. At 60 ms the map trailed the
+// timeline by up to a frame and a half and felt like it was catching up. At
+// 0 ms repaints were queued faster than MapLibre could render them, which
+// produced the same backlog by the opposite route -- and a synthetic drag
+// could not tell the difference, because dispatching pointer events on a timer
+// does not reproduce the render load of a real one.
 //
-//    60 ms   drag 3.2 s   p90 21 ms   worst  297 ms   12 frames >100 ms
-//   180 ms   drag 2.8 s   p90 18 ms   worst  299 ms   11 frames >100 ms
-//   400 ms   drag 4.4 s   p90 10 ms   worst 1587 ms   11 frames >100 ms
-//
-// Longer throttles batch more cells into each update, so the stalls get rarer
-// but much longer, which reads worse. The timeline redraws every frame
-// regardless, so the gesture itself stays live either way.
+// So: at most one repaint in flight. The next one waits for the render that
+// follows the last, and the most recent position is always the one that gets
+// drawn. That self-adjusts to the machine and the cell count instead of
+// assuming a number that is wrong somewhere.
+let _painting = false, _queued = false;
+
+// The feature-state path is the exception: there the cost is per update and
+// paid in JS, so a plain rate limit is still the right tool.
 const STATE_THROTTLE_MS = 120;
-function throttleMs() { return statsDriven() ? STATE_THROTTLE_MS : MAP_THROTTLE_MS; }
 let _pending = false, _lastPaint = 0, _trailing = null;
+
+function paintNow() {
+  _painting = true;
+  applyNow();
+  // "render" fires once MapLibre has drawn the change. If it somehow does not,
+  // the timer releases the lock so a drag cannot wedge itself.
+  let released = false;
+  const release = () => {
+    if (released) return;
+    released = true;
+    map.off("render", release);
+    _painting = false;
+    if (_queued) { _queued = false; paintNow(); }
+  };
+  map.once("render", release);
+  setTimeout(release, 250);
+}
+
 function applySelection(dragging) {
-  if (!dragging) {
+  if (statsDriven()) {
     if (_trailing) { clearTimeout(_trailing); _trailing = null; }
-    if (_pending) return;
-    _pending = true;
-    requestAnimationFrame(() => { _pending = false; _lastPaint = performance.now(); applyNow(); });
+    const since = performance.now() - _lastPaint;
+    if (!dragging || since >= STATE_THROTTLE_MS) {
+      if (_pending) return;
+      _pending = true;
+      requestAnimationFrame(() => {
+        _pending = false; _lastPaint = performance.now(); applyNow();
+      });
+      return;
+    }
+    // Mid-throttle: make sure the last position still lands even if no further
+    // event arrives, or releasing the pointer would leave the map a frame stale.
+    _trailing = setTimeout(() => {
+      _trailing = null; _lastPaint = performance.now(); applyNow();
+    }, STATE_THROTTLE_MS - since);
     return;
   }
-  const since = performance.now() - _lastPaint;
-  if (since >= throttleMs()) {
-    if (_pending) return;
-    _pending = true;
-    requestAnimationFrame(() => { _pending = false; _lastPaint = performance.now(); applyNow(); });
-    return;
-  }
-  // Mid-throttle: make sure the last position still lands even if no further
-  // event arrives, or releasing the pointer would leave the map a frame stale.
-  if (_trailing) return;
-  _trailing = setTimeout(() => {
-    _trailing = null; _lastPaint = performance.now(); applyNow();
-  }, throttleMs() - since);
+  if (_painting) { _queued = true; return; }
+  paintNow();
 }
 
 function applyNow() {
