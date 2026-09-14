@@ -60,6 +60,36 @@
         "data"
       ],
       "file:size": 664605696
+    },
+    "pmtiles": {
+      "href": "./fire-2018.pmtiles",
+      "type": "application/vnd.pmtiles",
+      "title": "2018 detections, vector tiles",
+      "roles": [
+        "visual",
+        "tiles"
+      ],
+      "file:size": 794705149
+    },
+    "style-avg-frp": {
+      "href": "./styles/avg-frp.json",
+      "type": "application/vnd.mapbox.style+json",
+      "title": "Fire radiative power, 2018 (average)",
+      "roles": [
+        "style"
+      ],
+      "file:size": 2249,
+      "file:checksum": "1220f96ceb7b15c15bb471f58c423c4af88c53809a987107ecc168b70e08fe5c5813"
+    },
+    "style-default": {
+      "href": "./styles/default.json",
+      "type": "application/vnd.mapbox.style+json",
+      "title": "Fire detections, 2018 (density)",
+      "roles": [
+        "style"
+      ],
+      "file:size": 2263,
+      "file:checksum": "122092e6d3b668f2567b0d52a276b0338007b138caa9062fbfad3abb6fda33004630"
     }
   },
   "links": [

@@ -58,6 +58,36 @@
         "data"
       ],
       "file:size": 58376185
+    },
+    "pmtiles": {
+      "href": "./fire-2002.pmtiles",
+      "type": "application/vnd.pmtiles",
+      "title": "2002 detections, vector tiles",
+      "roles": [
+        "visual",
+        "tiles"
+      ],
+      "file:size": 194706363
+    },
+    "style-avg-frp": {
+      "href": "./styles/avg-frp.json",
+      "type": "application/vnd.mapbox.style+json",
+      "title": "Fire radiative power, 2002 (average)",
+      "roles": [
+        "style"
+      ],
+      "file:size": 2253,
+      "file:checksum": "1220a01fdd4340231d8fd3eef2ec7b068e9bf998b3a9ce1812f49dcd87f3f90ae823"
+    },
+    "style-default": {
+      "href": "./styles/default.json",
+      "type": "application/vnd.mapbox.style+json",
+      "title": "Fire detections, 2002 (density)",
+      "roles": [
+        "style"
+      ],
+      "file:size": 2251,
+      "file:checksum": "12200fbf504cb994f3e6a41e3f2fe5593add6ce497c2df7dce6661b640734a120a62"
     }
   },
   "links": [

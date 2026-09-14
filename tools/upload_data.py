@@ -33,6 +33,7 @@ every later run. Use ``--force`` to re-upload the data and clear that state.
 from __future__ import annotations
 
 import argparse
+import re
 import sys
 from pathlib import Path
 
@@ -99,10 +100,33 @@ def is_data_publishable(rel: Path) -> bool:
     return is_publishable(rel) and rel.suffix.lower() in PUBLISHABLE_SUFFIXES
 
 
+# Years in a staged path, for ordering. A key may hold more than one number
+# (year=2020/fire-2020.pmtiles), and any of them dates the file equally well.
+_YEAR = re.compile(r"(?:^|\D)(19|20)(\d{2})(?:\D|$)")
+
+
+def upload_order(rel: Path) -> tuple[int, int, str]:
+    """Sort key: whole-record files first, then years newest to oldest.
+
+    A mirror is most useful in the order people reach for it. Whatever covers
+    the whole record is what a new visitor loads, and among the per-year files
+    the recent ones are the ones anyone is waiting on -- nobody is refreshing
+    the page for 2003. Alphabetical order does the exact opposite, spending the
+    first hours of a fourteen-gigabyte run on the oldest data in the archive.
+
+    Files with no year in their path sort first: they are the record-wide ones
+    (alltime, latest) and they are small.
+    """
+    years = [int(m.group(1) + m.group(2)) for m in _YEAR.finditer(rel.as_posix())]
+    if not years:
+        return (0, 0, rel.as_posix())
+    return (1, -max(years), rel.as_posix())
+
+
 def collect_data_uploads(
     config: dict[str, str], root: Path = ROOT
 ) -> list[Upload]:
-    """Every staged data file that would be uploaded, in sorted order.
+    """Every staged data file that would be uploaded, newest first.
 
     The walk is rooted at ``data_dir`` and nothing else. Keys go under the
     same ``write_prefix`` the catalog publishes to, so the data sits beside
@@ -110,15 +134,17 @@ def collect_data_uploads(
     """
     _, prefix = split_s3_uri(config["write_prefix"])
     base = data_root(config, root)
-    uploads = []
-    for path in sorted(base.rglob("*")):
+    rels = []
+    for path in base.rglob("*"):
         if not path.is_file():
             continue
         rel = path.relative_to(base)
-        if not is_data_publishable(rel):
-            continue
+        if is_data_publishable(rel):
+            rels.append(rel)
+    uploads = []
+    for rel in sorted(rels, key=upload_order):
         key = f"{prefix}/{rel.as_posix()}" if prefix else rel.as_posix()
-        uploads.append(Upload(path, key, content_type_for(path)))
+        uploads.append(Upload(base / rel, key, content_type_for(base / rel)))
     return uploads
 
 

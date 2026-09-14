@@ -236,11 +236,22 @@ async function discoverYears() {
   const collUrl = `${BASE}/collection.json`;
   let coll;
   try {
-    coll = await (await fetch(collUrl)).json();
+    // The catalog is read through a CDN that served a stale collection and
+    // stale items for a while after a publish -- the same URL returned an item
+    // with one asset while a cache-busted fetch returned it with four. A year
+    // whose item looks un-tiled is dropped from the selector silently, so the
+    // app just shows fewer archives than exist and nothing says why.
+    //
+    // Bust the collection, which is one small request per load, then key the
+    // items off its `updated` stamp. The items stay cacheable -- the URL only
+    // changes when the catalog is republished, which is exactly when the
+    // cached copy became wrong.
+    coll = await (await fetch(`${collUrl}?cb=${Date.now()}`)).json();
   } catch (e) {
     console.warn("collection unavailable; the year list stays empty", e);
     return;
   }
+  const ver = coll.updated ? `?v=${encodeURIComponent(coll.updated)}` : "";
   const items = (coll.links || []).filter(l => l.rel === "item");
   const found = await Promise.all(items.map(async l => {
     // Resolve against the URL the href was read from. Item hrefs are relative
@@ -248,7 +259,7 @@ async function discoverYears() {
     // joining the strings by hand puts the archive in the wrong directory.
     const href = new URL(l.href, collUrl).toString();
     try {
-      const item = await (await fetch(href)).json();
+      const item = await (await fetch(href + ver)).json();
       const asset = (item.assets || {}).pmtiles;
       if (!asset) return null;                    // published, not yet tiled
       const url = new URL(asset.href, href).toString();

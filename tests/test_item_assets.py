@@ -16,7 +16,6 @@ catalog.
 Run: python3 tests/test_item_assets.py
 """
 import json
-import sys
 import urllib.error
 import urllib.request
 from pathlib import Path
