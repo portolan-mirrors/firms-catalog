@@ -80,6 +80,15 @@ def main() -> int:
     ap.add_argument("--resolution", type=int)
     ap.add_argument("--levels")
     ap.add_argument("--features-min-zoom", type=int, default=FEATURES_MIN_ZOOM)
+    ap.add_argument("--bands",
+                    help="explicit level:minzoom band plan, e.g. '5:0,8:6'. "
+                         "gpio otherwise picks handovers from a tile-size "
+                         "budget, which judges each archive alone: 2026 grew "
+                         "by a week of data and its r8 band moved from z6 to "
+                         "z5, so cells changed size against every other year "
+                         "at one zoom. Requires geoparquet-io with --bands "
+                         "(geoparquet/geoparquet-io#1096); ignored by older "
+                         "versions, which fall back to the budget.")
     ap.add_argument("--max-tile-kb", type=int, default=MAX_TILE_KB,
                     help="band-handover budget; lower keeps coarse cells longer")
     ap.add_argument("--cumulative", action="store_true",
@@ -191,8 +200,10 @@ def main() -> int:
         name = f"fire-{a.year}.pmtiles" if a.year else "fire-latest.pmtiles"
         archive = tiles / name
         print(f"[pyramid] aggregate bands + raw points from z{a.features_min_zoom}")
+        band_args = ["--bands", a.bands] if a.bands else [
+            "--levels", a.levels, "--max-tile-kb", str(a.max_tile_kb)]
         run(["gpio", "pmtiles", "pyramid", str(combined), str(archive),
-             "--levels", a.levels, "--max-tile-kb", str(a.max_tile_kb),
+             *band_args,
              "--include-features",
              "--features-source", str(src),
              "--features-min-zoom", str(a.features_min_zoom), "-f"])

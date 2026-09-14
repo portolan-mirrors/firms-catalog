@@ -29,6 +29,12 @@ mkdir -p "$TILES" "$CATALOG"
 # it did: build_year.sh asked for band 8 against a pyramid of 4, 6 and 10.
 BASE_RES="${BASE_RES:-8}"
 OVERVIEW="${OVERVIEW:-5}"
+# State the handovers rather than letting the tile-size budget pick them. The
+# budget judges one archive at a time, so it drifts as a year grows: 2026
+# gained a week of data and its r8 band moved from z6 to z5, which is a cell
+# size change against every other year at that zoom. BANDS is what keeps the
+# set aligned; clear it to fall back to the budget.
+BANDS="${BANDS:-$OVERVIEW:0,$BASE_RES:6}"
 # Raw detections from z9 rather than z10: r8 cells are already coarse by then,
 # and the points are what a year archive is for.
 POINTS_Z="${POINTS_Z:-9}"
@@ -40,7 +46,32 @@ POINTS_Z="${POINTS_Z:-9}"
 echo "[$YEAR] aggregate + tile (r$OVERVIEW -> r$BASE_RES -> points z$POINTS_Z)"
 python3 tools/firms_aggregate.py --data "$DATA" --out "$WORK" \
   --tiles "$TILES" --year "$YEAR" --resolution "$BASE_RES" \
-  --levels "$OVERVIEW" --features-min-zoom "$POINTS_Z"
+  --levels "$OVERVIEW" --features-min-zoom "$POINTS_Z" \
+  ${BANDS:+--bands "$BANDS"}
+
+# Check the pyramid is the one that was asked for, before spending minutes on
+# breaks and styles built against it. A band plan that drifts is invisible in
+# the output -- the build succeeds, the archive looks fine, and the cells
+# simply change size against the other years at one zoom. 2026 was tiled twice
+# before anyone read its gpio:pyramid back.
+if [ -n "${BANDS:-}" ]; then
+  echo "[$YEAR] verify bands"
+  python3 - "$ARCHIVE" "$BANDS" <<'EOF'
+import sys
+from pmtiles.reader import MmapSource, Reader
+
+archive, spec = sys.argv[1], sys.argv[2]
+want = [(lvl, int(z)) for lvl, _, z in (p.partition(":") for p in spec.split(","))]
+with open(archive, "rb") as fh:
+    bands = Reader(MmapSource(fh)).metadata()["gpio:pyramid"]["bands"]
+# The features band is appended by --include-features and is not part of the
+# plan, so compare only the aggregate bands the plan names.
+got = [(str(b["level"]), b["minzoom"]) for b in bands if b["level"] != "features"]
+if got != [(str(l), z) for l, z in want]:
+    sys.exit(f"band plan drifted: asked for {want}, archive has {got}")
+print(f"  bands as planned: {got}")
+EOF
+fi
 
 # --band takes the a5 level and the aggregate it was tiled from. The zoom range
 # each level covers is read from the archive, never passed in, so the breaks
