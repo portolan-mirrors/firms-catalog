@@ -51,6 +51,13 @@ def main() -> int:
                     help="detections/ directory holding year=<YYYY>/")
     ap.add_argument("--year", type=int, required=True)
     ap.add_argument("--memory", default="6GB")
+    ap.add_argument("--seed-days", type=int, default=10,
+                    help="how far into a year an absent archive is still "
+                         "normal (default 10). A year has no archive until "
+                         "the first consolidation of it, so early January the "
+                         "window IS the year and seeding is correct. Later in "
+                         "the year an absent archive means something is wrong "
+                         "and the window would silently become the whole year.")
     ap.add_argument("--allow-gap", action="store_true",
                     help="merge even where the window no longer reaches the "
                          "archive. The hole is already there and merging does "
@@ -69,8 +76,34 @@ def main() -> int:
 
     live_lo, live_hi, live_n = span(con, live)
     if not archive.exists():
-        print(f"no {archive}; the window would become the whole year", file=sys.stderr)
-        return 1
+        # A year begins with no archive part, and the rolling window is the
+        # only thing that has its first days. Seeding from it is right then
+        # and only then: an archive missing in, say, June means something
+        # deleted it, and treating the window as the whole year would publish
+        # seven days of detections as a year's worth.
+        doy = live_lo.timetuple().tm_yday
+        if live_lo.year != a.year or doy > a.seed_days:
+            print(f"no {archive}, and the window starts {live_lo} -- day {doy} "
+                  f"of {live_lo.year}, past the {a.seed_days}-day seeding "
+                  f"window. Refusing to publish a rolling window as a whole "
+                  f"year; restore or backfill the archive first.", file=sys.stderr)
+            return 1
+        print(f"no archive for {a.year} yet; seeding it from the window "
+              f"({live_lo} .. {live_hi}, {live_n:,} rows)", flush=True)
+        part.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=part) as tmp:
+            parts = Path(tmp) / "parts"
+            parts.mkdir()
+            shutil.copy2(live, parts / "live_tail.parquet")
+            r = subprocess.run(
+                ["python3", str(HERE / "firms_build.py"), "--chunks", tmp,
+                 "--out", str(a.data), "--years", str(a.year), "--memory", a.memory],
+                text=True)
+            if r.returncode != 0:
+                return r.returncode
+        lo, hi, n = span(con, archive)
+        print(f"seeded  {lo} .. {hi}  {n:,} rows", flush=True)
+        return 0
     arc_lo, arc_hi, arc_n = span(con, archive)
     print(f"archive {arc_lo} .. {arc_hi}  {arc_n:,} rows", flush=True)
     print(f"window  {live_lo} .. {live_hi}  {live_n:,} rows", flush=True)

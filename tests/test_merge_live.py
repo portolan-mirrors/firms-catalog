@@ -89,6 +89,43 @@ def main() -> int:
               r.returncode == 0 and rows(con, d / "year=2026/detections.parquet") == 48,
               r.stdout[-150:])
 
+    with tempfile.TemporaryDirectory() as td:
+        # New year: no archive yet, and the window carries its first days.
+        d = Path(td) / "d"
+        write(con, d / "year=2027/live.parquet", "2027-01-01 00:00:00", 30)
+        r = run(d, 2027)
+        seeded = d / "year=2027/detections.parquet"
+        check("a new year is seeded from the window",
+              r.returncode == 0 and seeded.exists() and rows(con, seeded) == 30,
+              f"rc={r.returncode} {r.stderr[-200:]}")
+
+    with tempfile.TemporaryDirectory() as td:
+        # The same shape mid-year is not a new year, it is a missing archive.
+        d = Path(td) / "e"
+        write(con, d / "year=2027/live.parquet", "2027-06-01 00:00:00", 30)
+        r = run(d, 2027)
+        check("an archive missing mid-year is refused, not seeded",
+              r.returncode == 1 and not (d / "year=2027/detections.parquet").exists(),
+              f"rc={r.returncode} {r.stderr[-200:]}")
+
+    with tempfile.TemporaryDirectory() as td:
+        # Across the turn the window spans two years; each is handled on its
+        # own, and the old year must not be seeded from a partial window.
+        d = Path(td) / "f"
+        write(con, d / "year=2026/detections.parquet", "2026-12-01 00:00:00", 24 * 30)
+        write(con, d / "year=2026/live.parquet", "2026-12-28 00:00:00", 96)
+        write(con, d / "year=2027/live.parquet", "2027-01-01 00:00:00", 48)
+        r26, r27 = run(d, 2026), run(d, 2027)
+        hi26 = con.execute(
+            f"SELECT max(acq_datetime) FROM read_parquet('{d}/year=2026/detections.parquet')"
+        ).fetchone()[0]
+        check("across the turn the old year extends to its end",
+              r26.returncode == 0 and str(hi26) == "2026-12-31 23:00:00",
+              f"rc={r26.returncode} hi={hi26}")
+        check("across the turn the new year is seeded",
+              r27.returncode == 0 and rows(con, d / "year=2027/detections.parquet") == 48,
+              f"rc={r27.returncode} {r27.stderr[-200:]}")
+
     print()
     if failures:
         print(f"FAILED: {', '.join(failures)}")

@@ -22,7 +22,7 @@ on:
   workflow_dispatch:
     inputs:
       year:
-        description: "Year to consolidate (blank = current UTC year)"
+        description: "Year(s) to consolidate, space separated (blank = current, plus the old one in early January)"
         required: false
         default: ""
       allow_gap:
@@ -64,44 +64,81 @@ jobs:
           tippecanoe --version
           pmtiles version
 
-      - name: Pick the year
+      # Across New Year the seven-day window straddles two years, and each
+      # has its own partition: the old one still needs its last days, the new
+      # one does not exist yet. Both are handled, and only in early January is
+      # the old one touched at all -- which is what keeps the work bounded.
+      # Each year starts a fresh detections.parquet and fire-<year>.pmtiles,
+      # so the daily cost grows through a year and resets when it turns.
+      - name: Pick the years
         id: y
         run: |
-          Y="${{ inputs.year }}"
-          echo "year=${Y:-$(date -u +%Y)}" >> "$GITHUB_OUTPUT"
+          set -euo pipefail
+          if [ -n "${{ inputs.year }}" ]; then
+            YEARS="${{ inputs.year }}"
+          else
+            NOW=$(date -u +%Y); DOY=$(date -u +%j)
+            YEARS="$NOW"
+            # 10 matches merge_live.py's seeding window: while the old year can
+            # still be extended by a window that reaches into it.
+            if [ "$((10#$DOY))" -le 10 ]; then YEARS="$((NOW - 1)) $NOW"; fi
+          fi
+          echo "years=$YEARS" >> "$GITHUB_OUTPUT"
+          echo "consolidating: $YEARS"
 
-      - name: Fetch the published year and the rolling window
+      - name: Fetch the published years and their rolling windows
         env:
-          Y: ${{ steps.y.outputs.year }}
+          YEARS: ${{ steps.y.outputs.years }}
         run: |
           set -euo pipefail
-          mkdir -p "./staging/publish/detections/year=$Y"
           B=https://data.source.coop/portolan-mirrors/firms-catalog/detections
-          # Both parts come from the bucket rather than being rebuilt: the
-          # archive is the thing being extended, and re-deriving it from
-          # scratch every day would re-fetch a year of NRT for no reason.
-          for f in detections.parquet live.parquet; do
-            curl -sSfL --retry 3 -o "./staging/publish/detections/year=$Y/$f" \
-              "$B/year=$Y/$f"
-            ls -la "./staging/publish/detections/year=$Y/$f"
+          # From the bucket rather than rebuilt: the archive is the thing being
+          # extended, and re-deriving a year of NRT to add a day is waste.
+          # Either part may legitimately be absent -- a year has no archive
+          # until its first consolidation, and no window once the rolling
+          # window has moved past it -- so a 404 is not an error here.
+          for Y in $YEARS; do
+            mkdir -p "./staging/publish/detections/year=$Y"
+            for f in detections.parquet live.parquet; do
+              if curl -sSfL --retry 3 -o "./staging/publish/detections/year=$Y/$f" \
+                   "$B/year=$Y/$f"; then
+                ls -la "./staging/publish/detections/year=$Y/$f"
+              else
+                rm -f "./staging/publish/detections/year=$Y/$f"
+                echo "  year=$Y/$f not published"
+              fi
+            done
           done
 
-      - name: Fold the window into the year
+      - name: Fold each window into its year
         env:
-          Y: ${{ steps.y.outputs.year }}
+          YEARS: ${{ steps.y.outputs.years }}
+          ALLOW_GAP: ${{ inputs.allow_gap && '--allow-gap' || '' }}
         run: |
-          python3 tools/merge_live.py --data ./staging/publish/detections \
-            --year "$Y" --memory 6GB \
-            ${{ inputs.allow_gap && '--allow-gap' || '' }}
+          set -euo pipefail
+          for Y in $YEARS; do
+            echo "=== $Y ==="
+            python3 tools/merge_live.py --data ./staging/publish/detections \
+              --year "$Y" --memory 6GB $ALLOW_GAP
+          done
 
-      - name: Rebuild the year's tileset
+      - name: Rebuild each year's tileset
         env:
-          Y: ${{ steps.y.outputs.year }}
-          DATA: ./staging/publish/detections
-          WORK: ./staging/agg
-          TILES: ./staging/publish/detections/year=${{ steps.y.outputs.year }}
-          CATALOG: catalog/detections/year=${{ steps.y.outputs.year }}
-        run: bash tools/build_year.sh "$Y"
+          YEARS: ${{ steps.y.outputs.years }}
+        run: |
+          set -euo pipefail
+          for Y in $YEARS; do
+            # Skip a year the merge left without an archive: no window was
+            # published for it, so there is nothing new to tile.
+            [ -f "./staging/publish/detections/year=$Y/detections.parquet" ] || {
+              echo "=== $Y: no archive, nothing to tile ==="; continue; }
+            echo "=== $Y ==="
+            DATA=./staging/publish/detections \
+            WORK="./staging/agg-$Y" \
+            TILES="./staging/publish/detections/year=$Y" \
+            CATALOG="catalog/detections/year=$Y" \
+              bash tools/build_year.sh "$Y"
+          done
 
       - name: Regenerate collection metadata
         run: |
@@ -128,10 +165,12 @@ jobs:
       # published file, so it can only be regenerated once the upload lands.
       - name: Refresh the item and the collection
         env:
-          Y: ${{ steps.y.outputs.year }}
+          YEARS: ${{ steps.y.outputs.years }}
           FIRMS_MAP_KEY: ${{ secrets.FIRMS_MAP_KEY }}
         run: |
-          python3 tools/make_items.py --catalog catalog --key "$FIRMS_MAP_KEY" --years "$Y"
+          set -euo pipefail
+          python3 tools/make_items.py --catalog catalog --key "$FIRMS_MAP_KEY" \
+            --years "$(echo $YEARS | tr ' ' ',')"
           python3 tools/make_collection.py --data ./staging/publish/detections \
             --out catalog/detections/collection.json
 
