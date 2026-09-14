@@ -1242,7 +1242,32 @@ function renderArchiveControl() {
   }
   if (S.id) sel.value = S.id;
 }
-el("archive").onchange = e => { if (e.target.value !== S.id) mount(e.target.value); };
+/**
+ * Choosing an archive by hand.
+ *
+ * A fresh mount opens on the archive's default view, which for all-time is the
+ * last nine months -- a window a single year serves better, so the containment
+ * rule switched straight back to that year and the pick looked like it had
+ * been ignored. The rule was right; the view was wrong.
+ *
+ * So after an explicit pick, check whether the view we landed on is one this
+ * archive would be chosen for, and if it is not, open the archive's whole
+ * extent instead. That is what picking "all time" means, and it leaves the
+ * rule agreeing with the user rather than overruling them a frame later.
+ * Zooming back in still hands off to a year, which is the point of the rule.
+ */
+el("archive").onchange = async e => {
+  const id = e.target.value;
+  if (id === S.id) return;
+  await mount(id);
+  if (!S.axis || S.id !== id) return;
+  const d = tl.domainKeys();
+  if (!d) return;
+  const latest = ARCHIVES.latest && S.available.latest !== false ? latestWindow() : null;
+  const years = ORDER.filter(k => /^\d{4}$/.test(k));
+  if (chooseArchive(d, S.axis.unit, {latest, years}) === id) return;
+  tl.setDomainKeys(S.axis.min, S.axis.max);
+};
 
 // month vs date decides which native picker appears, so it follows the axis.
 function syncInputs() {
