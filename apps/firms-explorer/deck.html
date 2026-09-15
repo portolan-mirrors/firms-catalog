@@ -10,10 +10,13 @@
 <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
 <script src="https://unpkg.com/pmtiles@3.2.0/dist/pmtiles.js"></script>
 <script src="https://unpkg.com/protomaps-themes-base@4.5.0/dist/protomaps-themes-base.js"></script>
-<!-- The MVT parser, before deck.gl: deck's bundle ships only the worker
-     flavour of it, which cannot parse bytes handed to it directly. Loaded
-     first, this defines `loaders`, and deck.gl adds to it rather than
-     replacing it. The version is the one deck.gl 9.4.0 bundles. -->
+<!-- The MVT loader, before deck.gl. deck's bundle does not expose the loader
+     it uses for tiles, but it does put loaders.gl's `parse` on the `loaders`
+     global, adding to an object that already exists. So the mvt package goes
+     first and defines that object with the loader in it, and deck.gl adds
+     `parse`. Do not load @loaders.gl/core here as well: its export object has
+     getter-only properties, deck.gl's Object.assign onto it throws, and the
+     rest of deck.gl never loads. 4.4.3 is the version deck.gl 9.4.0 bundles. -->
 <script src="https://unpkg.com/@loaders.gl/mvt@4.4.3/dist/dist.min.js"></script>
 <script src="https://unpkg.com/deck.gl@9.4.0/dist.min.js"></script>
 <style>
@@ -141,8 +144,8 @@ import {Timeline, makeAxis, formatKey, keyToISO, isoToKey, COUNT_RAMP}
 import {bandAt, chooseArchive, keyDayRange, parseJSONish, pointsMinZoom,
         pyramid, shippedStops, timelineFromMetadata} from "./archives.js";
 import {Stats} from "./stats.js";
-import {TileCache, bucketIndex, countFor, fillFor, lngOverlaps, selectionPlan,
-        tileZoom} from "./deck-cells.js";
+import {DECK_TILE_SIZE, TileCache, bucketIndex, countFor, fillFor, lngOverlaps,
+        selectionPlan, tileZoom} from "./deck-cells.js";
 
 maplibregl.addProtocol("pmtiles", new pmtiles.Protocol().tile);
 
@@ -317,13 +320,16 @@ map.addControl(overlay);
  * with the same options, so the layer sees exactly what it expects.
  */
 function pmtilesFetch(pm) {
-  const MVT = loaders.MVTLoader;
+  // Parsed in a worker, as deck.gl's own tile path does. A z6 aggregate tile
+  // takes 37 ms to parse and a band edge lands a dozen at once, which on the
+  // main thread is a visible hitch in the middle of a zoom.
+  const MVT = loaders.MVTWorkerLoader;
   return async (url, ctx) => {
     const [z, x, y] = url.split("/").map(Number);
     const r = await pm.getZxy(z, x, y, ctx.signal);
     if (!r) return null;    // no tile here: an empty tile, not an error
     const lo = ctx.loadOptions || {};
-    return MVT.parseSync(r.data, {...lo, mvt: {...MVT.options.mvt, ...lo.mvt}});
+    return loaders.parse(r.data, MVT, {...lo, mvt: {...MVT.options.mvt, ...lo.mvt}});
   };
 }
 
@@ -596,6 +602,18 @@ function buildLayers() {
     fetch: S.fetch,
     binary: false,
     minZoom: 0, maxZoom: S.maxZoom,
+    // Request floor(zoom) tiles, as MapLibre does; see tileZoom().
+    tileSize: DECK_TILE_SIZE,
+    // While the next zoom's tiles load, the default strategy keeps drawing
+    // the nearest loaded ancestor under them. Across a band edge that ancestor
+    // holds the coarse cells, and the cells are translucent, so both
+    // resolutions showed at once. no-overlap drops the ancestor the moment its
+    // children have arrived and never draws the two together.
+    refinementStrategy: "no-overlap",
+    // deck.gl's default is 6 tiles in flight. A tile from the archive is one
+    // range request at 400 to 1200 ms, and a zoom wants a dozen or more, so
+    // at 6 they arrive in rounds and no-overlap waits for the last round.
+    maxRequests: 20,
     pickable: true,
     onTileLoad: onTile,
     onTileUnload: onTileGone,

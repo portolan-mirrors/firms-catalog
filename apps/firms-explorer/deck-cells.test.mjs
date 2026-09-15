@@ -34,9 +34,10 @@ function near(name, actual, expected, tol = 1e-6) {
 
 // ---------------------------------------------------------------- tile zoom
 
-// deck.gl requests round(zoom) where MapLibre requests floor(zoom), so the
-// band under the cursor is the one for the rounded zoom.
-eq("tile zoom rounds", [tileZoom(4.4), tileZoom(4.5), tileZoom(4.6)], [4, 5, 5]);
+// The page sets deck.gl's tile size so that it requests floor(zoom), as
+// MapLibre does, and everything that asks which band is on screen agrees.
+eq("tile zoom floors", [tileZoom(4.4), tileZoom(4.5), tileZoom(4.99)], [4, 4, 4]);
+eq("a whole zoom is itself", tileZoom(5), 5);
 
 // ------------------------------------------------------------------- bounds
 

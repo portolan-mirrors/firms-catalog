@@ -17,12 +17,18 @@ import {rampColor} from "./timeline.js";
 /**
  * The tile zoom deck.gl requests for a viewport zoom.
  *
- * MapLibre requests floor(zoom); deck.gl's TileLayer requests round(zoom). The
- * pyramid bands are keyed by the tile zoom, so everything that asks "which
- * band is on screen" has to round the same way deck.gl does.
+ * MapLibre requests floor(zoom). deck.gl's TileLayer requests
+ * round(zoom + log2(512 / tileSize)), so the page sets DECK_TILE_SIZE to make
+ * that floor(zoom) too. The pyramid bands are keyed by the tile zoom, so
+ * everything that asks "which band is on screen" has to agree with this.
+ *
+ * Rounding half a zoom early costs real bytes: at zoom 5.6 the rounded rule
+ * asks for the z6 tiles, the bottom of the fine band and the heaviest in the
+ * pyramid, where the floored rule keeps the z5 tiles until zoom 6.
  */
+export const DECK_TILE_SIZE = 512 * Math.SQRT2;
 export function tileZoom(viewZoom) {
-  return Math.round(viewZoom);
+  return Math.floor(viewZoom);
 }
 
 // ------------------------------------------------------------------- bounds
