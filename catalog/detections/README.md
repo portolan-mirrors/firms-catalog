@@ -49,3 +49,30 @@ FROM read_parquet(
   hive_partitioning = true)
 GROUP BY sensor ORDER BY detections DESC;
 ```
+
+### Pre-aggregated grids
+
+Every year also ships its detections summed onto an A5 grid, and the same
+exists for the whole record. If your question is a sum over whole cells and
+whole days, these answer it from megabytes instead of gigabytes — 2025 is a
+1,032 MB detections file against a 2.0 MB `aggregate-r5.parquet`.
+
+```
+detections/year=<YYYY>/aggregate-r5.parquet   coarse grid, one column per day
+detections/year=<YYYY>/aggregate-r8.parquet   finer grid,  one column per day
+detections/alltime-r5.parquet                 whole record, one column per month
+detections/alltime-r8.parquet
+detections/alltime-r10.parquet
+```
+
+```sql
+-- Where has the most fire burned since 2000? Reads 3.2 MB.
+SELECT a5_cell, count, round(sum_frp) AS frp
+FROM 's3://portolan-mirrors/firms-catalog/detections/alltime-r5.parquet'
+ORDER BY count DESC LIMIT 10;
+```
+
+Glob the filename, never `year=*/*.parquet`: a year directory holds the
+detections, the grids and the rolling window, and they are different tables.
+[AGENTS.md](AGENTS.md) has the column lists, the measured speed-ups, and what
+these grids cannot answer.

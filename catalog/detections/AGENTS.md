@@ -39,8 +39,29 @@ Landsat NRT covers only the US and Canada.
 ## Layout and how to exploit it
 
 ```
-detections/year=<YYYY>/detections.parquet
+detections/year=<YYYY>/detections.parquet    one row per detection
+detections/year=<YYYY>/aggregate-r5.parquet  a5 r5  cells, one column per day
+detections/year=<YYYY>/aggregate-r8.parquet  a5 r8  cells, one column per day
+detections/year=<YYYY>/live.parquet          only the current year; see below
+detections/alltime-r5.parquet                a5 r5  cells, one column per month
+detections/alltime-r8.parquet                a5 r8  cells, one column per month
+detections/alltime-r10.parquet               a5 r10 cells, one column per month
 ```
+
+Three different tables share the `year=` directory, so **glob the filename, not
+`*.parquet`**:
+
+| you want | glob |
+|---|---|
+| every detection | `.../detections/year=*/detections.parquet` |
+| the r5 grid, all years | `.../detections/year=*/aggregate-r5.parquet` |
+| the r8 grid, all years | `.../detections/year=*/aggregate-r8.parquet` |
+| one year of either | `.../detections/year=2025/aggregate-r5.parquet` |
+
+`year=*/*.parquet` reads all three at once and is always wrong: the aggregates
+have no `acq_date`, and `live.parquet` repeats rows that `detections.parquet`
+already holds. `partition:glob` in the collection names
+`year=*/detections.parquet` for this reason.
 
 One GeoParquet 2.0 file per year, hive-partitioned on `year` only. Rows inside
 each file are ordered by `(_month, _hilbert)`. That ordering is deliberate:
@@ -142,6 +163,74 @@ because every run uses the same resolution and therefore the same cells.
 **The cells hold no cross-tabs**: there is a `count_modis` and a
 `count_20260903`, but no `count_modis_20260903`. A query that needs one sensor
 on one day must go to the detections, not the cells.
+
+#### What is in a cell
+
+| column | in year files | in all-time files |
+|---|---|---|
+| `a5_cell`, `geometry` | yes | yes |
+| `count`, `sum_frp`, `avg_frp`, `max_frp` | yes | yes |
+| `count_modis`, `count_viirs_snpp`, `count_viirs_noaa20`, `count_viirs_noaa21` | yes | **no** |
+| `count_d`, `count_n` (day / night) | yes | **no** |
+| one bucket column per period | `count_YYYYMMDD`, one per day | `count_YYYYMM`, one per month |
+
+The all-time files carry totals and the monthly buckets only **[derived]**: the
+per-sensor and day/night splits are not aggregated across years. Ask a year file
+for those.
+
+#### When to use them
+
+The aggregates answer any question that is a **sum over whole cells and whole
+days**. They cannot answer anything needing a single detection, a sub-cell
+location, an FRP distribution, or two dimensions at once.
+
+Measured on 2025 — `detections.parquet` is 1,032 MB, `aggregate-r5.parquet`
+is 2.0 MB, `aggregate-r8.parquet` is 15.9 MB **[derived]**:
+
+| question | from detections | from `aggregate-r5` | same answer |
+|---|---|---|---|
+| total detections | 10 ms | 2 ms | yes |
+| night detections | 37 ms | 2 ms | yes |
+| detections from VIIRS_SNPP | 44 ms | 3 ms | yes |
+| total radiative power | 78 ms | 2 ms | yes |
+| detections on one day | 33 ms | 2 ms | yes |
+
+Local reads of a warm file, so the times understate the difference: over HTTP
+the aggregate is 2 MB against a gigabyte, and that ratio is the point rather
+than the milliseconds.
+
+```sql
+-- Detections per month in 2025, without touching a detection row.
+-- The bucket columns are named count_YYYYMMDD, so one UNPIVOT over that
+-- prefix turns 365 columns back into rows. Totals 58,352,900, which is the
+-- year file's row count exactly.
+SELECT substr(bucket, 7, 6) AS month, sum(n) AS detections
+FROM (SELECT * FROM
+        'https://data.source.coop/portolan-mirrors/firms-catalog/detections/year=2025/aggregate-r5.parquet'
+      UNPIVOT (n FOR bucket IN (COLUMNS('^count_20'))))
+GROUP BY 1 ORDER BY 1;
+
+-- Where did the most fire burn, all years, coarse cells? 3.2 MB read.
+SELECT a5_cell, count, round(sum_frp) AS frp
+FROM 'https://data.source.coop/portolan-mirrors/firms-catalog/detections/alltime-r5.parquet'
+ORDER BY count DESC LIMIT 10;
+
+-- The r5 grid across every year, as one table.
+SELECT year, sum(count) AS detections
+FROM read_parquet(
+  'https://data.source.coop/portolan-mirrors/firms-catalog/detections/year=*/aggregate-r5.parquet',
+  hive_partitioning = true)
+GROUP BY 1 ORDER BY 1;
+```
+
+Pick `r5` for continental questions and `r8` for regional ones: r5 is roughly
+7,600 cells globally and r8 roughly 150,000 **[derived]**. `r10` exists only
+for all time, where there is no raw-point layer to fall back on.
+
+**The all-time files lag the year files.** They totalled 614,362,367 detections
+when last built, against 631,316,915 across the year files **[derived]** —
+the all-time archive is rebuilt less often than the years it summarises. Use
+the year files when the answer has to be current.
 
 
 ## Quirks that produce silently wrong answers

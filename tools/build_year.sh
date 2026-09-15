@@ -73,6 +73,15 @@ print(f"  bands as planned: {got}")
 EOF
 fi
 
+# The aggregates are published beside the archive, not left in the work
+# directory. They are what the tiles were built from, and a GeoParquet of the
+# grid answers questions the MVT cannot without decoding every tile -- but only
+# if it ships. They were being built and deleted on every run until now.
+echo "[$YEAR] publish aggregates"
+cp "$WORK/cells.parquet"              "$TILES/aggregate-r$BASE_RES.parquet"
+cp "$WORK/cells_r$OVERVIEW.parquet"   "$TILES/aggregate-r$OVERVIEW.parquet"
+ls -la "$TILES"/aggregate-r*.parquet | awk '{printf "  %-46s %7.1f MB\n", $NF, $5/1e6}'
+
 # --band takes the a5 level and the aggregate it was tiled from. The zoom range
 # each level covers is read from the archive, never passed in, so the breaks
 # cannot disagree with the geometry they describe.

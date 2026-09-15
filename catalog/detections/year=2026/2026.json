@@ -80,7 +80,7 @@
         "style"
       ],
       "file:size": 2249,
-      "file:checksum": "1220f063771c675bc82165cd01f29bbd25c62fd4316ee6195d1383e5371dd376ea7c"
+      "file:checksum": "122093b1a1cd97cef74c0a6c5051f7ec6f93ffa26dbec383498212a0fc31827cd637"
     },
     "style-default": {
       "href": "./styles/default.json",
@@ -90,7 +90,7 @@
         "style"
       ],
       "file:size": 2264,
-      "file:checksum": "1220ccde9569f881dfdc802d76f0a277e411417ae3d1aa0ba8e5feaa2b08985a5d54"
+      "file:checksum": "1220b713ad94277bfab3585ca3a0fd5b855aa131c7eab88eb23e2f6a1e3ab29e1b94"
     }
   },
   "links": [
