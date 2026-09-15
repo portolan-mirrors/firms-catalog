@@ -1,11 +1,12 @@
 name: pages
 
-# Publish both apps to GitHub Pages.
+# Publish the apps to GitHub Pages.
 #
-# firms-preview stays at the root so its URL does not move; firms-explorer is
-# served at /explorer/. Both read the PUBLISHED catalog by default, so the
-# hosted copies need no configuration. Append ?tiles=./fire-latest.pmtiles
-# (preview) or ?base=… (explorer) to point a local checkout at a local build.
+# The root is the deck.gl explorer, which is the one to land on. The MapLibre
+# explorer stays at /explorer/ and the tiling preview moves to /preview/.
+# All three read the PUBLISHED catalog by default, so the hosted copies need
+# no configuration. Append ?tiles=./fire-latest.pmtiles (preview) or ?base=…
+# (explorer) to point a local checkout at a local build.
 
 on:
   push:
@@ -37,14 +38,22 @@ jobs:
       - name: Assemble the site
         run: |
           set -euo pipefail
-          mkdir -p site/explorer
+          mkdir -p site/explorer site/preview
           # Copy the files git tracks, not the directory: a local checkout also
           # holds gitignored .pmtiles symlinks pointing outside the repo, and
           # publishing those would ship broken links (or gigabytes).
-          git ls-files -z apps/firms-preview  | xargs -0 -I{} cp {} site/
+          git ls-files -z apps/firms-preview  | xargs -0 -I{} cp {} site/preview/
           git ls-files -z apps/firms-explorer | xargs -0 -I{} cp {} site/explorer/
-          rm -f site/serve.py site/explorer/*.test.mjs
-          echo "root:"; ls site; echo "explorer:"; ls site/explorer
+          # The root is the deck.gl explorer. It loads its modules as "./x.js",
+          # so the whole app directory goes to the root too and deck.html
+          # becomes index.html there -- copying the one file would give a page
+          # whose imports all 404.
+          git ls-files -z apps/firms-explorer | xargs -0 -I{} cp {} site/
+          mv site/deck.html site/index.html
+          rm -f site/preview/serve.py site/*.test.mjs site/explorer/*.test.mjs
+          echo "root:";     ls site
+          echo "explorer:"; ls site/explorer
+          echo "preview:";  ls site/preview
       - uses: actions/upload-pages-artifact@v3
         with:
           path: site
