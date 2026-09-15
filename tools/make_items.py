@@ -32,6 +32,9 @@ import duckdb
 
 PUBLIC = "https://data.source.coop/portolan-mirrors/firms-catalog"
 AVAIL = "https://firms.modaps.eosdis.nasa.gov/api/data_availability/csv/{key}/ALL"
+# The a5 levels the year pyramids band across: r5 for the overview zooms, r8
+# for the detail ones. Kept in step with tools/build_year.sh.
+AGG_LEVELS = (5, 8)
 # Source Cooperative's CDN answers 403 to the default Python-urllib agent, so
 # every request here names itself. Without this a HEAD looks like a missing
 # file rather than a rejected client.
@@ -208,6 +211,31 @@ def main() -> int:
                     "roles": ["style"],
                     **local_bytes(sf),
                 }
+        # The a5 aggregates the tiles were built from.
+        #
+        # Every number the map draws is in the PMTiles already, but only as
+        # vector tiles: to read one you decode MVT per tile and stitch. The
+        # same grid as GeoParquet is one file a query engine can open, which
+        # is the difference between "look at the map" and "join this to
+        # something". They live outside year=*/ on purpose -- that glob is the
+        # collection's partition, declared to hold detection rows, and a
+        # cell-per-row file in it would be counted as detections.
+        #
+        # Advertised only once published, for the same reason the tileset is:
+        # an asset naming a 404 is worse than no asset.
+        for lvl in AGG_LEVELS:
+            rel = f"aggregates/year={y}/cells-r{lvl}.parquet"
+            asize = remote_size(f"{PUBLIC}/detections/{rel}")
+            if not asize:
+                continue
+            item["assets"][f"aggregate-r{lvl}"] = {
+                "href": f"../{rel}",
+                "type": "application/vnd.apache.parquet",
+                "title": f"{y} detections aggregated to a5 r{lvl}, daily columns",
+                "roles": ["data", "aggregate"],
+                "file:size": asize,
+            }
+
         d = cat / "detections" / f"year={y}"
         d.mkdir(parents=True, exist_ok=True)
         (d / f"{y}.json").write_text(json.dumps(item, indent=2) + "\n")

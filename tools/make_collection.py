@@ -15,9 +15,27 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import hashlib
+import urllib.error
+import urllib.request
 
 import duckdb
 
+# Source Cooperative's CDN 403s the default urllib agent, which returns None
+# from a HEAD and reads exactly like "not published yet".
+UA = {"User-Agent": "firms-catalog-tools/1.0 "
+                    "(+https://github.com/portolan-mirrors/firms-catalog)"}
+
+
+def remote_size(url: str) -> int | None:
+    """Content-Length for a published asset, or None if it is not there."""
+    try:
+        req = urllib.request.Request(url, method="HEAD", headers=UA)
+        n = urllib.request.urlopen(req, timeout=30).headers.get("Content-Length")
+        return int(n) if n else None
+    except (urllib.error.URLError, OSError, ValueError):
+        return None
+
+ALLTIME_AGG_LEVELS = (5, 8, 10)
 PUBLIC = "https://data.source.coop/portolan-mirrors/firms-catalog"
 S3 = "s3://portolan-mirrors/firms-catalog"
 REPO = "https://github.com/portolan-mirrors/firms-catalog"
@@ -223,6 +241,28 @@ def main() -> int:
             "title": "All years, monthly aggregate, vector tiles",
             "roles": ["visual", "overview"],
             "pmtiles:layers": ["aggregate"],
+        }
+
+    # The a5 aggregates behind the all-time tileset, as GeoParquet. Same
+    # argument as the per-year ones on each item: the tiles carry these numbers
+    # but only as MVT, and a query engine wants a file. r10 is the all-time
+    # fine band, which the year archives have no equivalent of -- they switch
+    # to raw points where all-time switches to r10.
+    # Published, not merely staged. Advertising a file that is only on this
+    # machine gives a 404 to everyone else, and the asset gate rightly fails
+    # the build for it -- the same rule the per-year aggregates follow in
+    # make_items.py. The size comes from the bucket for the same reason.
+    for lvl in ALLTIME_AGG_LEVELS:
+        rel = f"aggregates/alltime-r{lvl}.parquet"
+        size = remote_size(f"{PUBLIC}/detections/{rel}")
+        if not size:
+            continue
+        assets[f"aggregate-r{lvl}"] = {
+            "href": f"./{rel}",
+            "type": "application/vnd.apache.parquet",
+            "title": f"All years aggregated to a5 r{lvl}, monthly columns",
+            "roles": ["data", "aggregate"],
+            "file:size": size,
         }
 
     assets["thumbnail"] = {
