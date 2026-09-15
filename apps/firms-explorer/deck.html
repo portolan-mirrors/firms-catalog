@@ -526,6 +526,24 @@ function plans() {
 }
 
 const OUTLINE = [0, 0, 0, 72], NO_LINE = [0, 0, 0, 0];
+
+/**
+ * Cell outline width, in the CSS pixels deck.gl measures line widths in.
+ *
+ * MapLibre's fill-outline-color is a one-DEVICE-pixel hairline, so on a 2x
+ * display deck.gl's `getLineWidth: 1` drew the same edge twice as thick and
+ * the cells read as a heavy grid rather than a tint. Dividing by the device
+ * ratio puts one device pixel back on the screen whatever the display, and
+ * reading it per layer build rather than once at load keeps it right when a
+ * window moves between a laptop screen and an external monitor.
+ *
+ * Floored at a third of a CSS pixel: below that the line falls far enough
+ * inside one device pixel that antialiasing fades it to nothing in places,
+ * which looks like dropped edges rather than a thin line.
+ */
+function hairline() {
+  return Math.max(1 / (window.devicePixelRatio || 1), 1 / 3);
+}
 const POINT_FILTER = new deck.DataFilterExtension({filterSize: 1});
 const _frp = new Map();
 function frpColor(v) {
@@ -571,7 +589,7 @@ function renderTile(p) {
   if (p.data.cells.length) out.push(new deck.GeoJsonLayer({
     ...p, id: p.id + "-cells", data: p.data.cells,
     filled: true, stroked: true, opacity: .74,
-    lineWidthUnits: "pixels", getLineWidth: 1,
+    lineWidthUnits: "pixels", getLineWidth: hairline(),
     getFillColor: f => fillFor(countFor(plan, f.properties), stops),
     getLineColor: f => countFor(plan, f.properties) >= floor ? OUTLINE : NO_LINE,
   }));
