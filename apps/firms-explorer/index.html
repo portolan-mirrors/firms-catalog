@@ -1368,7 +1368,10 @@ map.on("load", async () => {
     if (r.meta && r.meta.unit === "day")
       _latestWindow = {min: r.meta.min, max: r.meta.max};
   } catch { S.available.latest = false; renderArchiveControl(); }
-  await mount(qs.get("archive") || "alltime");
+  // Land on the rolling window, not all time. It is the smallest archive
+  // published and the freshest data, which is what most visitors came for;
+  // all-time is one zoom-out away and the containment rule fetches it then.
+  await mount(qs.get("archive") || "latest");
 });
 el("track").focus();
 </script></body></html>

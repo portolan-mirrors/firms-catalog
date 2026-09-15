@@ -15,6 +15,7 @@
  */
 import {
   bucketAt, civilFromDays, clampDomain, clampSelection, compareKeys, coordToX,
+  DEFAULT_SELECT_DAYS, DEFAULT_WINDOW_DAYS,
   daysFromCivil, domainBuckets, indexKey, keyIndex, makeAxis, makeSeries,
   MIN_SPAN, moveSelection, panDomain, quantize, resizeSelection,
   seriesFromBuckets, sumRange, ticks, xToCoord, zoomDomain,
@@ -392,6 +393,18 @@ eq("nine months is 274 daily buckets", selBuckets("day", 274), 274);
 }
 
 // ------------------------------------------------------------------- report
+
+
+// The landing defaults decide which archive the app opens on, and so how heavy
+// the first paint is. Five days inside sixty fits the rolling window, whose z2
+// tiles total 0.27 MB; nine months of context could only come from an archive
+// fifteen times heavier at that zoom. Widening either pulls that back in
+// silently, because the map still works -- it just loads far more.
+eq("default selection is five days", DEFAULT_SELECT_DAYS, 5);
+eq("default window is sixty days", DEFAULT_WINDOW_DAYS, 60);
+ok("the selection fits inside the window",
+   DEFAULT_SELECT_DAYS < DEFAULT_WINDOW_DAYS,
+   `select ${DEFAULT_SELECT_DAYS} vs window ${DEFAULT_WINDOW_DAYS}`);
 
 if (errors.length) {
   console.log(errors.map(e => `error  ${e}`).join("\n"));

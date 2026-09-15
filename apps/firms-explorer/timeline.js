@@ -359,8 +359,16 @@ export function quantize(width, count) {
 const HANDLE_W = 6;
 
 // Opening view: select the last week, show the last nine months around it.
-const DEFAULT_SELECT_DAYS = 7;
-const DEFAULT_WINDOW_DAYS = 274;
+// Five days selected, sixty shown around them.
+//
+// Both are chosen against what the landing archive can serve cheaply. The
+// rolling window is the smallest tileset published -- 0.27 MB of z2 against
+// all-time's 3.98 MB, because its cells carry eight daily columns rather than
+// three hundred monthly ones -- so opening on it is what makes the first paint
+// quick. Nine months of context could only come from an archive forty times
+// heavier, and it was context nobody had asked to see yet.
+export const DEFAULT_SELECT_DAYS = 5;
+export const DEFAULT_WINDOW_DAYS = 60;
 // Breathing room either side when fitting the domain to the selection.
 const FIT_MARGIN = 0.12;
 
