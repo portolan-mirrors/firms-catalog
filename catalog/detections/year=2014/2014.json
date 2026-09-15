@@ -89,6 +89,26 @@
       ],
       "file:size": 2260,
       "file:checksum": "1220fd62c902e848b1900588cd085b8e12852084f363cd53ff5fb53869e841be477b"
+    },
+    "aggregate-r5": {
+      "href": "./aggregate-r5.parquet",
+      "type": "application/vnd.apache.parquet",
+      "title": "2014 detections aggregated to a5 r5, daily columns",
+      "roles": [
+        "data",
+        "aggregate"
+      ],
+      "file:size": 1510926
+    },
+    "aggregate-r8": {
+      "href": "./aggregate-r8.parquet",
+      "type": "application/vnd.apache.parquet",
+      "title": "2014 detections aggregated to a5 r8, daily columns",
+      "roles": [
+        "data",
+        "aggregate"
+      ],
+      "file:size": 13304583
     }
   },
   "links": [

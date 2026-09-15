@@ -61,35 +61,25 @@
       ],
       "file:size": 810949611
     },
-    "pmtiles": {
-      "href": "./fire-2019.pmtiles",
-      "type": "application/vnd.pmtiles",
-      "title": "2019 detections, vector tiles",
+    "aggregate-r5": {
+      "href": "./aggregate-r5.parquet",
+      "type": "application/vnd.apache.parquet",
+      "title": "2019 detections aggregated to a5 r5, daily columns",
       "roles": [
-        "visual",
-        "tiles"
+        "data",
+        "aggregate"
       ],
-      "file:size": 796519032
+      "file:size": 1905984
     },
-    "style-avg-frp": {
-      "href": "./styles/avg-frp.json",
-      "type": "application/vnd.mapbox.style+json",
-      "title": "Fire radiative power, 2019 (average)",
+    "aggregate-r8": {
+      "href": "./aggregate-r8.parquet",
+      "type": "application/vnd.apache.parquet",
+      "title": "2019 detections aggregated to a5 r8, daily columns",
       "roles": [
-        "style"
+        "data",
+        "aggregate"
       ],
-      "file:size": 2249,
-      "file:checksum": "1220886b57d943429b2a75a1f0854ec5f9cb96efb8b9b3916c72fa766e9cbc7bfaa9"
-    },
-    "style-default": {
-      "href": "./styles/default.json",
-      "type": "application/vnd.mapbox.style+json",
-      "title": "Fire detections, 2019 (density)",
-      "roles": [
-        "style"
-      ],
-      "file:size": 2264,
-      "file:checksum": "122080f98cb2b007bce0bb5c5826205216783fc4ebd1797c5963e23bd5c1eeb3a0fa"
+      "file:size": 15293381
     }
   },
   "links": [

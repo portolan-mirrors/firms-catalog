@@ -90,6 +90,26 @@
       ],
       "file:size": 2264,
       "file:checksum": "1220c90727166dbd81f7c6fd587c6f2ac1c94e93e4ebf933df62676cf59a02f16c5e"
+    },
+    "aggregate-r5": {
+      "href": "./aggregate-r5.parquet",
+      "type": "application/vnd.apache.parquet",
+      "title": "2021 detections aggregated to a5 r5, daily columns",
+      "roles": [
+        "data",
+        "aggregate"
+      ],
+      "file:size": 1768413
+    },
+    "aggregate-r8": {
+      "href": "./aggregate-r8.parquet",
+      "type": "application/vnd.apache.parquet",
+      "title": "2021 detections aggregated to a5 r8, daily columns",
+      "roles": [
+        "data",
+        "aggregate"
+      ],
+      "file:size": 14902508
     }
   },
   "links": [

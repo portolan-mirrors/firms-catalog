@@ -88,6 +88,16 @@
       ],
       "file:size": 2254,
       "file:checksum": "1220eec2b986d9047e8c1bee48509931ba038a984fbfd5ec33a83ab6c206535176df"
+    },
+    "aggregate-r8": {
+      "href": "./aggregate-r8.parquet",
+      "type": "application/vnd.apache.parquet",
+      "title": "2006 detections aggregated to a5 r8, daily columns",
+      "roles": [
+        "data",
+        "aggregate"
+      ],
+      "file:size": 7954810
     }
   },
   "links": [

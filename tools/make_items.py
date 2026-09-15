@@ -24,6 +24,8 @@ import csv
 import hashlib
 import io
 import json
+import sys
+import time
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -72,17 +74,39 @@ def expected_sensors(year: int, avail: dict) -> list[str]:
 
 
 def stats(con, url: str) -> dict | None:
-    """Row count, bounds and time range, from metadata only."""
+    """Row count, bounds and time range, from metadata only.
+
+    Three footer reads over HTTP. The first distinguishes "not published yet"
+    from "published", so a failure there is an answer; the two after it are
+    reading a file already shown to exist, and a failure there is the network.
+    Those retry, because the CDN returns 503s and times out under load and an
+    unretried blip aborts the whole run: one pass died on year fifteen of
+    twenty-seven, leaving a catalog where some items described the aggregates
+    and the rest did not.
+    """
     try:
         rows = con.execute("SELECT num_rows FROM parquet_file_metadata(?)", [url]).fetchone()[0]
     except Exception:
-        return None
-    kv = con.execute("SELECT value FROM parquet_kv_metadata(?) WHERE key='geo'", [url]).fetchall()
+        return None                      # not published; the caller skips it
+
+    def footer(sql, attempts=4):
+        for i in range(attempts):
+            try:
+                return con.execute(sql, [url]).fetchall()
+            except Exception as exc:
+                if i == attempts - 1:
+                    raise
+                wait = 2 ** i
+                print(f"    footer read failed ({str(exc)[:60]}), retrying in {wait}s",
+                      file=sys.stderr, flush=True)
+                time.sleep(wait)
+
+    kv = footer("SELECT value FROM parquet_kv_metadata(?) WHERE key='geo'")
     geo = json.loads(kv[0][0]) if kv else {}
     bbox = ((geo.get("columns") or {}).get("geometry") or {}).get("bbox")
-    t0, t1 = con.execute(
+    t0, t1 = footer(
         "SELECT min(stats_min_value), max(stats_max_value) FROM parquet_metadata(?) "
-        "WHERE path_in_schema='acq_datetime'", [url]).fetchone()
+        "WHERE path_in_schema='acq_datetime'")[0]
     return {"rows": rows, "bbox": bbox, "t0": t0, "t1": t1}
 
 

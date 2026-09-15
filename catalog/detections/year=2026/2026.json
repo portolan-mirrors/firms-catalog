@@ -9,7 +9,7 @@
   "bbox": [
     -179.982,
     -88.4717,
-    179.9413,
+    179.9506,
     82.8202
   ],
   "geometry": {
@@ -21,11 +21,11 @@
           -88.47167
         ],
         [
-          179.9413,
+          179.95056,
           -88.47167
         ],
         [
-          179.9413,
+          179.95056,
           82.8202
         ],
         [
@@ -43,8 +43,8 @@
     "title": "Active fire detections, 2026",
     "datetime": null,
     "start_datetime": "2026-01-01T00:07:00Z",
-    "end_datetime": "2026-09-14T12:34:00Z",
-    "table:row_count": 41621652,
+    "end_datetime": "2026-09-15T05:46:00Z",
+    "table:row_count": 41805142,
     "firms:sensors": [
       "MODIS",
       "VIIRS_NOAA20",
@@ -60,7 +60,7 @@
       "roles": [
         "data"
       ],
-      "file:size": 732660389
+      "file:size": 733815972
     },
     "pmtiles": {
       "href": "./fire-2026.pmtiles",
@@ -70,7 +70,7 @@
         "visual",
         "tiles"
       ],
-      "file:size": 684566716
+      "file:size": 747519940
     },
     "style-avg-frp": {
       "href": "./styles/avg-frp.json",
@@ -91,6 +91,26 @@
       ],
       "file:size": 2264,
       "file:checksum": "1220b713ad94277bfab3585ca3a0fd5b855aa131c7eab88eb23e2f6a1e3ab29e1b94"
+    },
+    "aggregate-r5": {
+      "href": "./aggregate-r5.parquet",
+      "type": "application/vnd.apache.parquet",
+      "title": "2026 detections aggregated to a5 r5, daily columns",
+      "roles": [
+        "data",
+        "aggregate"
+      ],
+      "file:size": 1602739
+    },
+    "aggregate-r8": {
+      "href": "./aggregate-r8.parquet",
+      "type": "application/vnd.apache.parquet",
+      "title": "2026 detections aggregated to a5 r8, daily columns",
+      "roles": [
+        "data",
+        "aggregate"
+      ],
+      "file:size": 14277667
     }
   },
   "links": [
