@@ -110,8 +110,16 @@ def main() -> int:
     a = ap.parse_args()
 
     data = Path(a.data)
-    files = sorted(data.glob("year=*/*.parquet"))
-    if not files:
+    # Named explicitly rather than globbed as year=*/*.parquet. Each year now
+    # holds its archive, its rolling window and its a5 aggregates side by side,
+    # and they are three different tables: counting a cell-per-row aggregate as
+    # detections would inflate table:row_count and quietly stop it meaning what
+    # it says. The partition is the archives; the window is counted past them;
+    # the aggregates are not counted at all.
+    partitions = sorted(data.glob("year=*/detections.parquet"))
+    live_files = sorted(data.glob("year=*/live.parquet"))
+    files = partitions + live_files
+    if not partitions:
         raise SystemExit(f"no year partitions under {data}")
 
     # Count each row once. An item already reports its year's detections.parquet,
@@ -131,9 +139,7 @@ def main() -> int:
     # Counting it whole inflated the collection by that overlap every time.
     # Each live file is therefore counted only past its year's archive.
     cutoffs = {}
-    for f in files:
-        if f.name != "live.parquet":
-            continue
+    for f in live_files:
         year = f.parent.name
         archive = f.parent / "detections.parquet"
         if archive.exists():
@@ -253,7 +259,7 @@ def main() -> int:
     # the build for it -- the same rule the per-year aggregates follow in
     # make_items.py. The size comes from the bucket for the same reason.
     for lvl in ALLTIME_AGG_LEVELS:
-        rel = f"aggregates/alltime-r{lvl}.parquet"
+        rel = f"alltime-r{lvl}.parquet"
         size = remote_size(f"{PUBLIC}/detections/{rel}")
         if not size:
             continue
@@ -330,8 +336,8 @@ def main() -> int:
         "partition:keys": [
             {"name": "year", "type": "int32", "description": "Year of acquisition (UTC)."}
         ],
-        "partition:file_count": len(files),
-        "partition:glob": f"{S3}/detections/year=*/*.parquet",
+        "partition:file_count": len(partitions),
+        "partition:glob": f"{S3}/detections/year=*/detections.parquet",
         "table:primary_geometry": "geometry",
         "table:row_count": n,
         "table:columns": [

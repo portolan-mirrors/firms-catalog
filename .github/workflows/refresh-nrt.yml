@@ -80,6 +80,7 @@ jobs:
         run: |
           python3 tools/firms_aggregate.py --data ./staging/publish/detections \
             --out ./staging/agg --tiles ./staging/publish/detections \
+            --part live.parquet \
             --resolution 8 --levels 5 --features-min-zoom 9 --bands "5:0,8:6"
 
       # Both paths matter and both were wrong. The tileset belongs under

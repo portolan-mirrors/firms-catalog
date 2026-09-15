@@ -217,19 +217,21 @@ def main() -> int:
         # vector tiles: to read one you decode MVT per tile and stitch. The
         # same grid as GeoParquet is one file a query engine can open, which
         # is the difference between "look at the map" and "join this to
-        # something". They live outside year=*/ on purpose -- that glob is the
-        # collection's partition, declared to hold detection rows, and a
-        # cell-per-row file in it would be counted as detections.
+        # something". They sit beside the year they summarise, so one path
+        # prefix carries everything about a year, and a
+        # cell-per-row file in it is a different table from the detections
+        # beside it, so partition:glob names detections.parquet exactly rather
+        # than year=*/*.parquet.
         #
         # Advertised only once published, for the same reason the tileset is:
         # an asset naming a 404 is worse than no asset.
         for lvl in AGG_LEVELS:
-            rel = f"aggregates/year={y}/cells-r{lvl}.parquet"
+            rel = f"year={y}/aggregate-r{lvl}.parquet"
             asize = remote_size(f"{PUBLIC}/detections/{rel}")
             if not asize:
                 continue
             item["assets"][f"aggregate-r{lvl}"] = {
-                "href": f"../{rel}",
+                "href": f"./aggregate-r{lvl}.parquet",
                 "type": "application/vnd.apache.parquet",
                 "title": f"{y} detections aggregated to a5 r{lvl}, daily columns",
                 "roles": ["data", "aggregate"],

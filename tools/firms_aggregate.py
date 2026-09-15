@@ -80,6 +80,16 @@ def main() -> int:
     ap.add_argument("--resolution", type=int)
     ap.add_argument("--levels")
     ap.add_argument("--features-min-zoom", type=int, default=FEATURES_MIN_ZOOM)
+    ap.add_argument("--part", default="detections.parquet",
+                    help="which file in each year=<Y>/ holds the detection "
+                         "rows to aggregate (default detections.parquet). A "
+                         "year directory also holds live.parquet, the rolling "
+                         "window, and the aggregates themselves -- globbing "
+                         "*.parquet read all of them: the window's rows are "
+                         "already in the archive, so every overlapping day was "
+                         "counted twice, and an aggregate has no acq_date at "
+                         "all. No caller wants two of these at once, so the "
+                         "file is named rather than matched.")
     ap.add_argument("--bands",
                     help="explicit level:minzoom band plan, e.g. '5:0,8:6'. "
                          "gpio otherwise picks handovers from a tile-size "
@@ -114,8 +124,8 @@ def main() -> int:
 
     data, out = Path(a.data), Path(a.out)
     part = f"year={a.year}" if a.year else "year=*"
-    if not sorted(data.glob(f"{part}/*.parquet")):
-        raise SystemExit(f"no {part} partition under {data}")
+    if not sorted(data.glob(f"{part}/{a.part}")):
+        raise SystemExit(f"no {part}/{a.part} under {data}")
     out.mkdir(parents=True, exist_ok=True)
 
     con = duckdb.connect()
@@ -131,7 +141,7 @@ def main() -> int:
                      CAST(month(acq_date) AS UTINYINT) AS month,
                      strftime(acq_date, '%Y%m%d') AS day,
                      geometry
-              FROM read_parquet('{data}/{part}/*.parquet',
+              FROM read_parquet('{data}/{part}/{a.part}',
                                 hive_partitioning=true))
         TO '{src}' (FORMAT PARQUET, COMPRESSION zstd)
     """)

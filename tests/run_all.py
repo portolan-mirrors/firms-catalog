@@ -19,6 +19,7 @@ TESTS = [
     "test_net.py",
     "test_timeline_meta.py",
     "test_merge_live.py",
+    "test_aggregate_totals.py",
     "test_collection_items.py",
     "test_item_assets.py",
     "test_stac_valid.py",

@@ -23,7 +23,7 @@
     "FIRMS",
     "near real-time"
   ],
-  "updated": "2026-09-14T20:45:24Z",
+  "updated": "2026-09-15T07:32:02Z",
   "providers": [
     {
       "name": "NASA LANCE FIRMS",
@@ -71,8 +71,8 @@
       "description": "Year of acquisition (UTC)."
     }
   ],
-  "partition:file_count": 28,
-  "partition:glob": "s3://portolan-mirrors/firms-catalog/detections/year=*/*.parquet",
+  "partition:file_count": 27,
+  "partition:glob": "s3://portolan-mirrors/firms-catalog/detections/year=*/detections.parquet",
   "table:primary_geometry": "geometry",
   "table:row_count": 631316915,
   "table:columns": [
