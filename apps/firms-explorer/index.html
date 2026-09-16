@@ -151,8 +151,8 @@ const FRP_RAMP = [
 ];
 const el = id => document.getElementById(id);
 
-// The two archives with no STAC item of their own. Every year comes from the
-// catalog in discoverYears(), so a newly tiled year appears without an edit.
+// The two archives with a fixed name. The per-year ones are filled in by
+// listYears(), which derives them from the clock rather than the catalog.
 const ARCHIVES = {
   alltime: {label: "All time · monthly", url: `${BASE}/alltime.pmtiles`,
             presets: [["1y", 12], ["5y", 60], ["all", null]]},
@@ -170,9 +170,10 @@ const UNIT_ADVERB = {day: "daily", month: "monthly"};
 //
 //   ?add=2020|./fire-2020.pmtiles          (repeatable)
 //
-// Year archives are discovered from their STAC items, so a year appears only
-// once its tileset is published. This is how you drive one before that, and it
-// is why the dev server has to be the range-capable serve.py -- python's
+// Every year is listed by listYears() pointing at its published URL, so this
+// is how you aim one at a local build instead -- and how you drive a year the
+// catalog does not carry yet, whose derived URL would 404. It is also why the
+// dev server has to be the range-capable serve.py -- python's
 // http.server answers 200 to a Range request and hands back the whole file,
 // which leaves PMTiles parsing megabytes of the wrong bytes and rendering
 // nothing, with no error to explain it.
@@ -182,9 +183,9 @@ const OVERRIDDEN = new Set();
 //
 //   ?localyears=2000-2026&localbase=./years
 //
-// Years are normally discovered from the catalog, which only lists what is
-// published. This is how you drive a full local build before any of it is
-// uploaded, without naming twenty-seven archives on the URL.
+// listYears() points every year at its published URL. This redirects the whole
+// range to a local build before any of it is uploaded, without naming
+// twenty-seven archives on the URL.
 const _ly = qs.get("localyears");
 if (_ly) {
   const base = (qs.get("localbase") || ".").replace(/\/$/, "");
@@ -218,75 +219,49 @@ let S = {
 
 // -------------------------------------------------------------- discovery
 
-/**
- * A cheap reachability probe.
- *
- * A source that 404s keeps MapLibre from ever reaching `loaded`, so `idle`
- * never fires and every idle-driven readout freezes at its initial value. That
- * failure has already happened here, so nothing is put in the style until it
- * has been shown to answer. A STAC item advertising a `pmtiles` asset is not
- * proof the archive exists: 2020's item carries one today and the file is
- * still being built.
- */
-async function reachable(url) {
-  try {
-    const r = await fetch(url, {headers: {Range: "bytes=0-127"}});
-    return r.ok;            // 206 for a served range, 200 if ranges are ignored
-  } catch {
-    return false;
-  }
-}
+// FIRMS' MODIS record opens in November 2000; there is no earlier year to
+// offer. The upper bound comes from the clock rather than a literal, so the
+// list extends itself on New Year with no edit here.
+const FIRST_YEAR = 2000;
 
-async function discoverYears() {
-  const collUrl = `${BASE}/collection.json`;
-  let coll;
-  try {
-    // The catalog is read through a CDN that served a stale collection and
-    // stale items for a while after a publish -- the same URL returned an item
-    // with one asset while a cache-busted fetch returned it with four. A year
-    // whose item looks un-tiled is dropped from the selector silently, so the
-    // app just shows fewer archives than exist and nothing says why.
-    //
-    // Bust the collection, which is one small request per load, then key the
-    // items off its `updated` stamp. The items stay cacheable -- the URL only
-    // changes when the catalog is republished, which is exactly when the
-    // cached copy became wrong.
-    coll = await (await fetch(`${collUrl}?cb=${Date.now()}`)).json();
-  } catch (e) {
-    console.warn("collection unavailable; the year list stays empty", e);
-    return;
-  }
-  const ver = coll.updated ? `?v=${encodeURIComponent(coll.updated)}` : "";
-  const items = (coll.links || []).filter(l => l.rel === "item");
-  const found = await Promise.all(items.map(async l => {
-    // Resolve against the URL the href was read from. Item hrefs are relative
-    // ("./year=2020/2020.json") and so are the asset hrefs inside each item;
-    // joining the strings by hand puts the archive in the wrong directory.
-    const href = new URL(l.href, collUrl).toString();
-    try {
-      const item = await (await fetch(href + ver)).json();
-      const asset = (item.assets || {}).pmtiles;
-      if (!asset) return null;                    // published, not yet tiled
-      const url = new URL(asset.href, href).toString();
-      if (!await reachable(url)) {
-        console.warn(`${item.id} advertises a pmtiles asset that 404s; skipping`);
-        return null;
-      }
-      return {id: item.id, url, label: `${item.id} · daily`,
-              presets: [["7d", 7], ["30d", 30], ["90d", 90], ["all", null]]};
-    } catch (e) {
-      console.warn("skipping item " + href, e);
-      return null;
-    }
-  }));
-  // Newest first: the recent years are the ones anyone reaches for.
-  for (const y of found.filter(Boolean).sort((a, b) => b.id.localeCompare(a.id))) {
-    // An ?add= override wins. Otherwise publishing a year silently redirects a
-    // local build to the remote copy and you spend an afternoon debugging the
-    // wrong file -- which is exactly what happened with 2020.
-    if (OVERRIDDEN.has(y.id)) continue;
-    ARCHIVES[y.id] = y;
-    ORDER.push(y.id);
+/**
+ * The per-year archives, derived rather than discovered.
+ *
+ * This used to read collection.json, then every item, then probe every
+ * pmtiles with a range request: 55 requests before the map could draw, to
+ * learn a list that is `2000..thisYear` and URLs that are one printf. The
+ * catalog is the authority on what exists, but the app does not need to ask
+ * it at runtime. The layout is a contract, and tests/test_item_assets.py
+ * asserts it: every item sits in year=<Y>/ and names ./fire-<Y>.pmtiles. A
+ * rename there fails the tests rather than this map.
+ *
+ * Deriving also retires the CDN workaround this function was carrying. The
+ * catalog is read through a cache that served a stale collection and stale
+ * items for a while after a publish, so a freshly tiled year could vanish
+ * from the selector with nothing saying why; the fix was a cache-buster on
+ * the collection and a version key on every item. A list that is never
+ * fetched cannot be served stale.
+ *
+ * The cost of being wrong is small and self-correcting. A year the catalog
+ * does not have yet (fire-2027, in the hours after New Year before the
+ * rebuild lands) fails its first read in mount(), which marks it unavailable
+ * and drops it from the picker before anything is added to the style -- the
+ * 404-source-stalls-`idle` failure this file has hit before needs a source
+ * to reach MapLibre, and a failed readArchive() never gets that far.
+ */
+function listYears() {
+  for (let y = new Date().getUTCFullYear(); y >= FIRST_YEAR; y--) {
+    const id = String(y);
+    // An ?add= override wins. Otherwise publishing a year silently redirects
+    // a local build to the remote copy and you spend an afternoon debugging
+    // the wrong file -- which is exactly what happened with 2020.
+    if (OVERRIDDEN.has(id)) continue;
+    ARCHIVES[id] = {
+      id, url: `${BASE}/year=${id}/fire-${id}.pmtiles`,
+      label: `${id} · daily`,
+      presets: [["7d", 7], ["30d", 30], ["90d", 90], ["all", null]],
+    };
+    ORDER.push(id);                            // newest first, as the loop runs
   }
 }
 
@@ -1354,13 +1329,9 @@ map.on("click", e => {
 
 // ----------------------------------------------------------------- start-up
 
-// Start discovery before the map is ready so the catalog fetch and the style
-// load overlap; the first mount waits on it so the selector is complete.
-const discovered = discoverYears();
+listYears();
 renderArchiveControl();
 map.on("load", async () => {
-  await discovered;
-  renderArchiveControl();
   // The rolling window's extent is what the containment rule tests against,
   // and it is only knowable from the archive itself.
   try {
