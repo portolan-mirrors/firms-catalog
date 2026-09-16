@@ -152,7 +152,7 @@ import {Timeline, makeAxis, formatKey, keyToISO, isoToKey, COUNT_RAMP}
   from "./timeline.js";
 import {bandAt, chooseArchive, keyDayRange, parseJSONish, pointsMinZoom,
         pyramid, shippedStops, timelineFromMetadata} from "./archives.js";
-import {axisFor, bestCover, gapsIn} from "./mounted.js";
+import {axisFor, bestCover, gapsIn, ownerOf} from "./mounted.js";
 import {Stats} from "./stats.js";
 import {DECK_TILE_SIZE, TileCache, bucketIndex, countFor, fillFor, lngOverlaps,
         selectionPlan, tileZoom} from "./deck-cells.js";
@@ -846,37 +846,53 @@ function reportNoPoints() {
 let _deepened = false;
 
 function deepen() {
-  if (_deepened || S.id !== "latest" || !S.axis || !autoSwitchOn()) return;
+  if (_deepened || !S.axis || !autoSwitchOn()) return;
   const d = tl.domainKeys();
   if (!d) return;
   const years = ORDER.filter(k => /^\d{4}$/.test(k) && S.available[k] !== false);
   const want = chooseArchive(d, S.axis.unit, {latest: null, years});
-  if (!want || want === "latest" || !ARCHIVES[want]) return;
-
-  // Defer to the selection. activateOwner decides which archive draws, and for
-  // the default five days that is the rolling window -- both cover it and the
-  // window is fresher. Switching to the year here anyway meant the two took
-  // turns: deepen moved to the year, activateOwner moved straight back, and
-  // the timeline flickered between an eight-day archive and a year's while
-  // never settling.
-  //
-  // Only one of them can own the single drawing slot, and the selection is the
-  // better claim: it is what the numbers on screen describe. So the year is
-  // fetched only when the selection is not better served by the window, which
-  // is the moment the user widens or pans. Until then the span beyond the
-  // window stays hatched, which is at least honest about what is loaded.
-  const held = [...S.mounted.entries()]
-    .filter(([, m]) => m.unit === S.axis.unit)
-    .map(([id, m]) => ({...m, id, rebuilt: id === "latest" ? 2 : 1}));
-  const byName = {unit: S.axis.unit, min: `${want}0101`, max: `${want}1231`,
-                  id: want, rebuilt: 1};
-  const pick = bestCover([...held, byName],
-                         S.axis.keyAt(S.sel.from), S.axis.keyAt(S.sel.to));
-  if (!pick || pick.id !== want) return;
-
+  if (!want || want === S.id || S.mounted.has(want) || !ARCHIVES[want]) return;
   _deepened = true;
-  setStatus("deepen", `Loading the rest of the timeline from ${ARCHIVES[want].label}…`);
-  mount(want, currentCarry()).finally(() => setStatus("deepen", null));
+  preload(want);
+}
+
+/**
+ * Bring an archive in without giving it the map.
+ *
+ * This is what deepen() should have done from the start. It used to switch,
+ * which put it in a tug of war with activateOwner -- one moved to the year so
+ * the timeline could fill, the other moved back because the five-day selection
+ * is better served by the window, and the published app flickered between
+ * them.
+ *
+ * They were never really in conflict; they answer different questions. Which
+ * archive *draws* is the selection's to decide, because the map's colours
+ * describe the selection. Which archives are *loaded* is the view's, because
+ * the timeline spans the view. Preloading separates the two: the year is read,
+ * cached and given a loader layer that fetches its tiles and paints nothing,
+ * so the bar chart fills while the window keeps the map.
+ */
+async function preload(id) {
+  const arc = ARCHIVES[id];
+  if (!arc || S.mounted.has(id)) return;
+  setStatus("preload", `Loading the rest of the timeline from ${arc.label}…`);
+  try {
+    let read = _reads.get(id);
+    if (!read) { read = await readArchive(arc.url); _reads.set(id, read); }
+    if (!read.meta) return;
+    if (!_caches.has(id)) _caches.set(id, new TileCache(S.axis));
+    S.mounted.set(id, {unit: read.meta.unit, min: read.meta.min, max: read.meta.max});
+    S.available[id] = true;
+    // The hatching is what the axis knows minus what is loaded, so it shrinks
+    // the moment this lands -- before a single tile of it has arrived.
+    tl.setGaps(gapsFor(S.axis));
+    overlay.setProps({layers: buildLayers()});
+  } catch (e) {
+    S.available[id] = false;
+    console.warn("preload failed: " + arc.url, e);
+  } finally {
+    setStatus("preload", null);
+  }
 }
 
 /**
@@ -940,6 +956,41 @@ function buildLayers() {
       ...S.outgoing.render,
     }));
   }
+  // Archives that are mounted but not drawing still load, invisibly, so the
+  // timeline can sum them.
+  //
+  // `visible: false` would skip loading altogether, which is the thing we
+  // need. A layer whose renderSubLayers returns null still fetches its tiles
+  // and still fires onTileLoad -- it simply paints nothing. So the map stays
+  // single-source and cannot composite two partial sums of the same cell,
+  // while the bar chart gets every archive's numbers.
+  //
+  // This is deck's own tile selection doing the work: which tiles this
+  // viewport needs, at which zoom, and when to evict them. Fetching them by
+  // hand would mean reimplementing exactly that.
+  for (const [id, m] of S.mounted) {
+    if (id === S.id || (S.outgoing && id === S.outgoing.id)) continue;
+    const read = _reads.get(id);
+    const cache = _caches.get(id);
+    if (!read || !cache || m.unit !== S.axis.unit) continue;
+    layers.push(new deck.MVTLayer({
+      id: "load-" + id,
+      data: "{z}/{x}/{y}",
+      fetch: splitFetch(read.pm),
+      binary: false,
+      minZoom: 0, maxZoom: read.maxZoom ?? S.maxZoom,
+      tileSize: DECK_TILE_SIZE,
+      refinementStrategy: "no-overlap",
+      maxRequests: 6,
+      pickable: false,
+      onTileLoad: t => addToCache(cache, t),
+      onTileUnload: t => cache.remove(t),
+      onViewportLoad: () => scheduleHistogram(),
+      // Nothing drawn: the point is the fetch and the cache, not pixels.
+      renderSubLayers: () => null,
+    }));
+  }
+
   layers.push(new deck.MVTLayer({
     id: "fire-" + S.id,
     data: "{z}/{x}/{y}",
@@ -978,6 +1029,40 @@ function buildLayers() {
     renderSubLayers: renderTile,
   }));
   return layers;
+}
+
+/**
+ * Add the buckets held only by archives that are not drawing.
+ *
+ * The drawing archive has already contributed; this fills the rest of the
+ * axis from the loader caches. Ownership is per bucket rather than per
+ * archive, because the overlap is real: the rolling window and the year both
+ * hold the last few days and disagree on the most recent one, where the
+ * window is complete and the year partial.
+ */
+function mergeMountedBuckets(buckets, band, view) {
+  if (S.mounted.size < 2) return;
+  const held = [...S.mounted.entries()]
+    .filter(([, m]) => m.unit === S.axis.unit)
+    .map(([id, m]) => ({...m, id, rebuilt: id === "latest" ? 2 : 1}));
+  for (const [id, cache] of _caches) {
+    if (id === S.id || !S.mounted.has(id)) continue;
+    let h;
+    try { h = cache.histogram(...zoomRange(band), view); } catch { continue; }
+    for (const key in h.buckets) {
+      // Only where this archive is the owner. Without that test a day both
+      // archives hold would be added twice.
+      const owner = ownerOf(held, key);
+      if (owner && owner.id === id) buckets[key] = h.buckets[key];
+    }
+  }
+}
+
+/** Put a loaded tile into a cache. The cache wants one flat feature list. */
+function addToCache(cache, t) {
+  const c = t.content || {cells: [], points: []};
+  cache.add({id: t.id, index: t.index, bbox: t.bbox,
+             content: c.cells.concat(c.points)});
 }
 
 function onTile(t) {
@@ -1126,6 +1211,12 @@ function computeHistogram() {
   } else {
     const h = S.tiles.histogram(...zoomRange(band), view);
     buckets = h.buckets; n = h.cells; label = "cells in view"; mode = "tiles";
+    // Fold in the archives that are loaded but not drawing. Each bucket is
+    // taken from exactly one of them -- whichever owns it -- so a day the
+    // rolling window and the year both hold is counted once, from the window,
+    // which is the one rebuilt hourly. Summing them instead would double
+    // every overlapping day.
+    mergeMountedBuckets(buckets, band, view);
   }
   let max = 0;
   for (const k in buckets) if (buckets[k] > max) max = buckets[k];
