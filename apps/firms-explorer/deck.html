@@ -235,6 +235,9 @@ let S = {
   // deck.gl specifics: the open archive, its zoom range, and the tile cache
   // that stands in for querySourceFeatures.
   pm: null, fetch: null, maxZoom: 9, tiles: null, hasCum: null,
+  // The archive being replaced, kept drawing until its successor can cover
+  // the screen. Null except during a switch.
+  outgoing: null,
   // What is actually loaded, keyed by archive id, as {unit, min, max}. The
   // drawn axis can be wider than this -- that is the point -- so the two are
   // kept apart: `axis` is what the timeline shows, `mounted` is what has the
@@ -402,6 +405,17 @@ async function mount(id, carry) {
     console.warn("archive declares no firms:timeline and carries no bucket " +
                  "columns; there is no axis to draw", arc.url);
     return;
+  }
+  // Capture what is on screen before replacing it, so buildLayers can keep
+  // drawing it while the new archive loads. Only on a real switch: remounting
+  // the same archive has nothing to hand over from, and holding a stale copy
+  // of yourself underneath is how two resolutions end up composited.
+  if (S.id && S.id !== id && S.pm) {
+    S.outgoing = {id: S.id, fetch: S.fetch, maxZoom: S.maxZoom,
+                  render: {renderSubLayers: renderTile,
+                           updateTriggers: {getFillColor: _plans.sig,
+                                            getLineColor: _plans.sig,
+                                            getFilterValue: S.id}}};
   }
   S.id = id;
   S.available[id] = true;
@@ -776,7 +790,31 @@ function reportNoPoints() {
 function buildLayers() {
   if (!S.axis || !S.pm) return [];
   plans();
-  return [new deck.MVTLayer({
+  const layers = [];
+  // The outgoing archive keeps drawing underneath until the incoming one has
+  // a viewport's worth of tiles. Swapping the layer id alone makes deck drop
+  // the old tiles the instant the new layer appears, and the map is empty for
+  // however long the new archive takes -- seconds, against this bucket. The
+  // two cover the same ground at the same moment, so the handover is
+  // invisible rather than a blink through nothing.
+  if (S.outgoing) {
+    layers.push(new deck.MVTLayer({
+      id: "fire-" + S.outgoing.id,
+      data: "{z}/{x}/{y}",
+      fetch: S.outgoing.fetch,
+      binary: false,
+      minZoom: 0, maxZoom: S.outgoing.maxZoom,
+      tileSize: DECK_TILE_SIZE,
+      refinementStrategy: "no-overlap",
+      maxRequests: 4,          // it is on its way out; do not starve the new one
+      pickable: false,
+      // Frozen: it paints whatever it painted when the switch began. Recolouring
+      // it would need its own axis and plans, which are exactly what is being
+      // replaced.
+      ...S.outgoing.render,
+    }));
+  }
+  layers.push(new deck.MVTLayer({
     id: "fire-" + S.id,
     data: "{z}/{x}/{y}",
     fetch: S.fetch,
@@ -797,7 +835,13 @@ function buildLayers() {
     pickable: true,
     onTileLoad: t => { onTile(t); tileProgress(); },
     onTileUnload: onTileGone,
-    onViewportLoad: ts => { setStatus("tiles", null); scheduleHistogram(ts); },
+    onViewportLoad: ts => {
+      setStatus("tiles", null);
+      // The incoming archive can now cover the screen, so the one underneath
+      // has nothing left to hide and is dropped.
+      if (S.outgoing) { S.outgoing = null; overlay.setProps({layers: buildLayers()}); }
+      scheduleHistogram(ts);
+    },
     onClick: showCell,
     // The plan signature carries the archive, the selection and what the
     // tiles have revealed about themselves; the filter range is a uniform and
@@ -805,7 +849,8 @@ function buildLayers() {
     updateTriggers: {getFillColor: _plans.sig, getLineColor: _plans.sig,
                      getFilterValue: S.id},
     renderSubLayers: renderTile,
-  })];
+  }));
+  return layers;
 }
 
 function onTile(t) {
