@@ -57,12 +57,20 @@
  .spacer{flex:1}
  .note{font-size:10px;color:var(--warn);line-height:1.35;padding:0 12px 8px;display:none}
  .over .note{padding:6px 0 0;display:block}
- .status{font-size:10px;color:var(--dim);line-height:1.35;padding:6px 0 0;
-   display:none;border-top:1px solid var(--line);margin-top:7px}
+ /* Over the map, just above the timeline, where the eye already is. In the
+    side panel this was dim ten-pixel text under a row of numbers, and it
+    cleared in about two seconds -- technically present and never once seen. */
+ .status{position:absolute;left:50%;transform:translateX(-50%);
+   bottom:calc(var(--dock-h, 150px) + 14px);z-index:6;
+   max-width:min(520px,72vw);padding:8px 12px;border-radius:7px;
+   background:rgba(18,20,26,.93);border:1px solid var(--line);
+   box-shadow:0 6px 20px rgba(0,0,0,.42);
+   font-size:11.5px;color:#dbe3ee;line-height:1.4;display:none;
+   pointer-events:none}
  .status.on{display:block}
- .status .bar{height:2px;background:rgba(148,163,184,.18);border-radius:1px;
-   margin-top:4px;overflow:hidden}
- .status .bar i{display:block;height:100%;background:var(--accent, #e8722c);
+ .status .bar{height:3px;background:rgba(148,163,184,.2);border-radius:2px;
+   margin-top:6px;overflow:hidden}
+ .status .bar i{display:block;height:100%;background:#e8722c;
    transition:width .18s linear}
  .status .hint{color:var(--warn)}
  .legend{display:flex;flex-direction:column;gap:2px}
@@ -103,9 +111,9 @@
       <div class="row"><span>zoom</span><b id="z">–</b></div>
       <div class="row"><span id="nlabel">cells in view</span><b id="ncells">–</b></div>
       <div class="row"><span>histogram</span><b id="ms">–</b></div>
-      <div class="status" id="status"></div>
     </div>
   </div>
+  <div class="status" id="status"></div>
   <div id="pop"><span class="x" id="popx">✕</span>
     <div class="grp">Cell</div><table id="pt" style="width:100%;border-collapse:collapse;
       font-size:10.5px;margin-top:6px"></table></div>
@@ -152,7 +160,7 @@ import {Timeline, makeAxis, formatKey, keyToISO, isoToKey, COUNT_RAMP}
   from "./timeline.js";
 import {bandAt, chooseArchive, keyDayRange, parseJSONish, pointsMinZoom,
         pyramid, shippedStops, timelineFromMetadata} from "./archives.js";
-import {axisFor, bestCover, gapsIn, ownerOf} from "./mounted.js";
+import {axisFor, bestCover, gapsIn, ownerOf, planMounts} from "./mounted.js";
 import {Stats} from "./stats.js";
 import {DECK_TILE_SIZE, TileCache, bucketIndex, countFor, fillFor, lngOverlaps,
         selectionPlan, tileZoom} from "./deck-cells.js";
@@ -1387,8 +1395,46 @@ function considerSwitch(d, dragging, overflow, overflowDays) {
   _switchTimer = setTimeout(() => {
     _switchTimer = null;
     if (changesUnit) mount(want, carry);
-    else preload(want);
+    else syncMounts(d);
   }, SWITCH_SETTLE_MS);
+}
+
+/**
+ * Load every year the view touches, and drop the ones it has left.
+ *
+ * chooseArchive answers "which one archive best fits this view", which is the
+ * right question for drawing and the wrong one for loading. A view from
+ * September 2025 to May 2026 is mostly 2026, so that is what it returned --
+ * and 2026 was already mounted, so nothing happened and the 2025 half of the
+ * timeline stayed blank however long you looked at it. Not one request for
+ * fire-2025 was ever made.
+ *
+ * The view wants all of the years it overlaps, capped. planMounts has said so
+ * since the design went in; it had simply never been called.
+ *
+ * The cap is what keeps this affordable: each mounted archive fetches tiles
+ * for every viewport change, and against this bucket that is most of a second
+ * per request. Four archives loading at once is why going back to 2024 crawled.
+ */
+function syncMounts(domain) {
+  if (!S.axis || S.axis.unit !== "day") return;
+  const years = ORDER.filter(k => /^\d{4}$/.test(k) && S.available[k] !== false)
+                     .map(Number);
+  const plan = planMounts({fromYear: +String(domain.from).slice(0, 4),
+                           toYear: +String(domain.to).slice(0, 4)},
+                          {years, latest: !!ARCHIVES.latest});
+  const wanted = new Set(plan.years.map(String));
+  wanted.add("latest");
+  for (const id of [...S.mounted.keys()]) {
+    // Never drop what is drawing: the map would go blank for the sake of a
+    // request budget.
+    if (wanted.has(id) || id === S.id) continue;
+    S.mounted.delete(id);
+    _caches.delete(id);
+  }
+  for (const id of wanted) if (!S.mounted.has(id) && ARCHIVES[id]) preload(id);
+  tl.setGaps(gapsFor(S.axis));
+  overlay.setProps({layers: buildLayers()});
 }
 
 function autoSwitchOn() {
