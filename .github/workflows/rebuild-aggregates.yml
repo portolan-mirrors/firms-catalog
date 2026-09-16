@@ -1,0 +1,143 @@
+name: rebuild-aggregates
+
+# Rebuild the a5 aggregates for one or more years, and publish them.
+#
+# The year build makes these as a by-product, so the daily consolidation keeps
+# the current year current on its own. This is for the rest: a level changing,
+# the distribution settings changing, or a year that was published before the
+# aggregates existed.
+#
+# It reads detections.parquet from the bucket rather than expecting it locally,
+# which is what makes this a CI job rather than a laptop one -- the source is
+# ~1 GB per year and the runner throws it away afterwards.
+
+on:
+  workflow_dispatch:
+    inputs:
+      years:
+        description: "Years, comma separated (e.g. 2019,2020) or a range (2000-2010)"
+        required: true
+      dry_run:
+        description: "Build and validate, but do not upload"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  id-token: write
+
+# Shared with the other publishers: they write the same year=<Y> objects.
+concurrency:
+  group: catalog-write
+  cancel-in-progress: false
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.p.outputs.matrix }}
+    steps:
+      - id: p
+        run: |
+          set -euo pipefail
+          python3 - <<'EOF' >> "$GITHUB_OUTPUT"
+          import json, os, re
+          spec = os.environ["YEARS"].strip()
+          out = []
+          for part in spec.split(","):
+              part = part.strip()
+              if not part:
+                  continue
+              m = re.fullmatch(r"(\d{4})-(\d{4})", part)
+              if m:
+                  lo, hi = int(m.group(1)), int(m.group(2))
+                  if lo > hi:
+                      raise SystemExit(f"range {part} runs backwards")
+                  out += list(range(lo, hi + 1))
+              elif re.fullmatch(r"\d{4}", part):
+                  out.append(int(part))
+              else:
+                  raise SystemExit(f"cannot read {part!r} as a year or a range")
+          years = sorted(set(out))
+          if not years:
+              raise SystemExit("no years given")
+          # One job per year: each reads a gigabyte and writes a few hundred
+          # megabytes, so they are sized for a runner individually and would
+          # not fit one runner together.
+          print("matrix=" + json.dumps({"year": years}))
+          EOF
+        env:
+          YEARS: ${{ inputs.years }}
+
+  aggregate:
+    needs: plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix: ${{ fromJson(needs.plan.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install tooling
+        run: |
+          set -euo pipefail
+          pip install --quiet duckdb boto3 \
+            'git+https://github.com/geoparquet/geoparquet-io.git@main'
+
+      - name: Fetch year=${{ matrix.year }}
+        run: |
+          set -euo pipefail
+          Y=${{ matrix.year }}
+          mkdir -p "./staging/publish/detections/year=$Y"
+          curl -sSfL --retry 3 \
+            -o "./staging/publish/detections/year=$Y/detections.parquet" \
+            "https://data.source.coop/portolan-mirrors/firms-catalog/detections/year=$Y/detections.parquet"
+          ls -la "./staging/publish/detections/year=$Y/"
+
+      - name: Aggregate and normalise
+        run: |
+          set -euo pipefail
+          Y=${{ matrix.year }}
+          T="./staging/publish/detections/year=$Y"
+          python3 tools/firms_aggregate.py \
+            --data ./staging/publish/detections --out ./staging/agg \
+            --year "$Y" --resolution 8 --levels 5
+          mv ./staging/agg/cells.parquet    "$T/aggregate-r8.parquet"
+          mv ./staging/agg/cells_r5.parquet "$T/aggregate-r5.parquet"
+          python3 tools/normalise_aggregate.py \
+            "$T/aggregate-r8.parquet" "$T/aggregate-r5.parquet"
+          # The aggregate has to total the detections it came from. It did not
+          # once, because the input glob swept in the rolling window whose rows
+          # the archive already held, and nothing about the map showed it.
+          python3 - <<EOF
+          import duckdb, sys
+          con = duckdb.connect()
+          t = "$T"
+          arc = con.execute(f"SELECT count(*) FROM '{t}/detections.parquet'").fetchone()[0]
+          for lvl in (5, 8):
+              n = con.execute(f"SELECT sum(count) FROM '{t}/aggregate-r{lvl}.parquet'").fetchone()[0]
+              print(f"r{lvl}: {n:,} vs archive {arc:,}")
+              if n != arc:
+                  sys.exit(f"aggregate-r{lvl} totals {n:,}, archive holds {arc:,}")
+          EOF
+          # The source is a gigabyte and must not be re-uploaded; only the
+          # aggregates are new here.
+          rm -f "$T/detections.parquet"
+          ls -la "$T/"
+
+      - name: Assume the Source Cooperative write role
+        if: ${{ !inputs.dry_run }}
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::939788573396:role/source-coop-portolan-mirrors
+          role-session-name: ${{ github.event.repository.name }}-${{ github.run_id }}
+          aws-region: us-west-2
+
+      - name: Upload
+        if: ${{ !inputs.dry_run }}
+        run: python3 tools/upload_data.py --confirm --data-dir ./staging/publish
