@@ -152,7 +152,7 @@ import {Timeline, makeAxis, formatKey, keyToISO, isoToKey, COUNT_RAMP}
   from "./timeline.js";
 import {bandAt, chooseArchive, keyDayRange, parseJSONish, pointsMinZoom,
         pyramid, shippedStops, timelineFromMetadata} from "./archives.js";
-import {axisFor, gapsIn, ownerOf} from "./mounted.js";
+import {axisFor, bestCover, gapsIn} from "./mounted.js";
 import {Stats} from "./stats.js";
 import {DECK_TILE_SIZE, TileCache, bucketIndex, countFor, fillFor, lngOverlaps,
         selectionPlan, tileZoom} from "./deck-cells.js";
@@ -873,9 +873,11 @@ function deepen() {
  * cached, so hopping between them is a relabel rather than a reload, and the
  * handover keeps the old one painting until the new one can.
  *
- * Only the newest bucket is consulted. A selection spanning the boundary cannot
- * be served whole by either, and the one holding its recent end is the one whose
- * numbers are freshest; the shortfall is what the partial-selection line reports.
+ * Coverage decides, then freshness. Asking only about the selection's newest
+ * bucket looked equivalent and was not: the window owns today, so a sixty-day
+ * selection ending today picked the eight-day archive and under-reported
+ * fifty-two of them. Where both cover the selection whole -- the default five
+ * days -- the fresher wins, which is what keeps today complete.
  */
 function activateOwner() {
   if (!S.axis || !S.sel || !autoSwitchOn()) return;
@@ -883,8 +885,7 @@ function activateOwner() {
     .filter(([, m]) => m.unit === S.axis.unit)
     .map(([id, m]) => ({...m, id, rebuilt: id === "latest" ? 2 : 1}));
   if (held.length < 2) return;
-  const key = S.axis.keyAt(S.sel.to);
-  const owner = ownerOf(held, key);
+  const owner = bestCover(held, S.axis.keyAt(S.sel.from), S.axis.keyAt(S.sel.to));
   if (!owner || owner.id === S.id) return;
   mount(owner.id, currentCarry());
 }

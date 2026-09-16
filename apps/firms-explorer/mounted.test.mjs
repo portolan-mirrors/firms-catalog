@@ -9,7 +9,7 @@
  *
  * Run: node apps/firms-explorer/mounted.test.mjs
  */
-import {axisFor, covers, gapsIn, ownerOf, planMounts} from "./mounted.js";
+import {axisFor, bestCover, covers, gapsIn, ownerOf, planMounts} from "./mounted.js";
 
 const errors = [];
 let checked = 0;
@@ -92,6 +92,34 @@ eq("a wider view is capped at two, nearest the middle",
 eq("years outside the view are never mounted",
    planMounts({fromYear: 2026, toYear: 2026}, {years: [2000, 2026], latest: true}).years,
    [2026]);
+
+
+// --- which archive serves a whole selection ------------------------------
+// Coverage first, freshness only to break a tie. Asking ownerOf about the
+// selection's newest bucket instead looks equivalent and is not: the window
+// owns today, so a sixty-day selection ending today chose an eight-day
+// archive and under-reported fifty-two of them. Browser testing caught that;
+// these assertions are why it cannot come back.
+{
+  const held = [y2026, latest];
+  eq("a short recent selection uses the fresher archive",
+     bestCover(held, "20260913", "20260915").id, "latest");
+  eq("a selection the window exactly covers still uses the window",
+     bestCover(held, "20260908", "20260915").id, "latest");
+  eq("a selection wider than the window uses the year",
+     bestCover(held, "20260717", "20260915").id, "2026");
+  // The fixtures end a day apart -- the year at 0914, the window at 0915 --
+  // so a selection reaching one day back is an eight-all tie that freshness
+  // settles. Two days back is the first that the year covers outright.
+  eq("an eight-all tie goes to the fresher archive",
+     bestCover(held, "20260907", "20260915").id, "latest");
+  eq("once the year covers more of it, the year takes it",
+     bestCover(held, "20260901", "20260915").id, "2026");
+  eq("a selection with no recent end uses the year",
+     bestCover(held, "20260301", "20260331").id, "2026");
+  ok("a selection nothing covers has no server",
+     bestCover(held, "20240101", "20240131") === null);
+}
 
 if (errors.length) {
   console.log(`\nFAILED ${errors.length} of ${checked}:`);

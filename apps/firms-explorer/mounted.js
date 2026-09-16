@@ -44,6 +44,37 @@ export function ownerOf(mounted, key) {
   return best;
 }
 
+/**
+ * Which mounted archive should serve a whole selection.
+ *
+ * Distinct from `ownerOf`, which answers for one bucket. Asking that about the
+ * selection's newest bucket alone looks right and is not: the rolling window
+ * owns today, so a sixty-day selection ending today picked an eight-day
+ * archive and under-reported fifty-two of them. The numbers were real and
+ * badly wrong.
+ *
+ * Coverage decides, then freshness. Where two archives both cover the whole
+ * selection -- the last five days, say, which the window and the year both
+ * hold -- the fresher one wins, and that is what keeps today complete rather
+ * than the year's partial copy of it.
+ */
+export function bestCover(mounted, fromKey, toKey) {
+  const unit = unitOf(fromKey);
+  const lo = keyIndex(fromKey, unit), hi = keyIndex(toKey, unit);
+  let best = null, bestN = -1;
+  for (const m of mounted) {
+    if (m.unit !== unit) continue;
+    const a = Math.max(lo, keyIndex(m.min, unit));
+    const b = Math.min(hi, keyIndex(m.max, unit));
+    const n = Math.max(0, b - a + 1);
+    if (n > bestN || (n === bestN && n > 0 &&
+                      (m.rebuilt || 0) > (best.rebuilt || 0))) {
+      best = m; bestN = n;
+    }
+  }
+  return bestN > 0 ? best : null;
+}
+
 export function covers(m, key) {
   if (m.unit !== unitOf(key)) return false;
   const i = keyIndex(key, m.unit);
