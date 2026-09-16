@@ -852,6 +852,28 @@ function deepen() {
   const years = ORDER.filter(k => /^\d{4}$/.test(k) && S.available[k] !== false);
   const want = chooseArchive(d, S.axis.unit, {latest: null, years});
   if (!want || want === "latest" || !ARCHIVES[want]) return;
+
+  // Defer to the selection. activateOwner decides which archive draws, and for
+  // the default five days that is the rolling window -- both cover it and the
+  // window is fresher. Switching to the year here anyway meant the two took
+  // turns: deepen moved to the year, activateOwner moved straight back, and
+  // the timeline flickered between an eight-day archive and a year's while
+  // never settling.
+  //
+  // Only one of them can own the single drawing slot, and the selection is the
+  // better claim: it is what the numbers on screen describe. So the year is
+  // fetched only when the selection is not better served by the window, which
+  // is the moment the user widens or pans. Until then the span beyond the
+  // window stays hatched, which is at least honest about what is loaded.
+  const held = [...S.mounted.entries()]
+    .filter(([, m]) => m.unit === S.axis.unit)
+    .map(([id, m]) => ({...m, id, rebuilt: id === "latest" ? 2 : 1}));
+  const byName = {unit: S.axis.unit, min: `${want}0101`, max: `${want}1231`,
+                  id: want, rebuilt: 1};
+  const pick = bestCover([...held, byName],
+                         S.axis.keyAt(S.sel.from), S.axis.keyAt(S.sel.to));
+  if (!pick || pick.id !== want) return;
+
   _deepened = true;
   setStatus("deepen", `Loading the rest of the timeline from ${ARCHIVES[want].label}…`);
   mount(want, currentCarry()).finally(() => setStatus("deepen", null));

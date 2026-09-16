@@ -51,6 +51,24 @@ jobs:
           git ls-files -z apps/firms-explorer | xargs -0 -I{} cp {} site/
           mv site/deck.html site/index.html
           rm -f site/preview/serve.py site/*.test.mjs site/explorer/*.test.mjs
+
+          # Stamp the module imports with the commit.
+          #
+          # Pages serves assets with cache-control: max-age=600, and the HTML
+          # is revalidated while the modules it imports are not. A deploy that
+          # changes both therefore hands a returning visitor new HTML and a
+          # ten-minute-old module -- and if the new HTML imports a symbol the
+          # old module does not export, the page does not start at all. That
+          # is not theoretical: it happened on the deploy that added bestCover.
+          #
+          # A query string per commit makes each deploy a different URL, so the
+          # old copy is never the one that answers.
+          V=${GITHUB_SHA::12}
+          find site -name '*.html' -o -name '*.js' | while read -r f; do
+            perl -pi -e 's{(from\s+"\./[A-Za-z0-9_.-]+\.js)"}{$1?v='"$V"'"}g' "$f"
+          done
+          echo "stamped module imports with $V"
+          grep -o 'from "\./[a-z-]*\.js?v=[0-9a-f]*"' site/index.html | sort -u | head
           echo "root:";     ls site
           echo "explorer:"; ls site/explorer
           echo "preview:";  ls site/preview
