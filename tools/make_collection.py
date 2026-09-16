@@ -336,7 +336,14 @@ def main() -> int:
         "partition:keys": [
             {"name": "year", "type": "int32", "description": "Year of acquisition (UTC)."}
         ],
-        "partition:file_count": len(partitions),
+        # Counted from the items, not from what happens to be staged. --data
+        # sees only the years this run touched -- in CI usually one or two --
+        # and a count of 2 for a twenty-seven year archive is the same class of
+        # lie the extent used to tell before widen_from_items. The items are
+        # one per published year, which is the number being asked for.
+        "partition:file_count": max(
+            len(partitions),
+            sum(1 for _ in (Path(a.out).parent).glob("year=*/[0-9]*.json"))),
         "partition:glob": f"{S3}/detections/year=*/detections.parquet",
         "table:primary_geometry": "geometry",
         "table:row_count": n,

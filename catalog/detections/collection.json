@@ -10,7 +10,7 @@
   ],
   "id": "detections",
   "title": "Active Fire Detections (MODIS and VIIRS)",
-  "description": "Global satellite active fire and thermal anomaly detections from NASA FIRMS, as one year-partitioned GeoParquet 2.0 table of 631,316,915 rows covering 2000 to 2026. Carries MODIS (Terra and Aqua, 1 km) and VIIRS (Suomi-NPP, NOAA-20, NOAA-21, 375 m). Near-real-time rows are appended hourly and replaced by science-quality rows as NASA finalizes them; the `quality` column says which is which. Rows are ordered by month and then by a Hilbert index, so a reader prunes on both time and space. Read the [agent guide](AGENTS.md) before querying: `confidence` is encoded differently per instrument and `type` is NULL for all near-real-time rows.",
+  "description": "Global satellite active fire and thermal anomaly detections from NASA FIRMS, as one year-partitioned GeoParquet 2.0 table of 631,469,093 rows covering 2000 to 2026. Carries MODIS (Terra and Aqua, 1 km) and VIIRS (Suomi-NPP, NOAA-20, NOAA-21, 375 m). Near-real-time rows are appended hourly and replaced by science-quality rows as NASA finalizes them; the `quality` column says which is which. Rows are ordered by month and then by a Hilbert index, so a reader prunes on both time and space. Read the [agent guide](AGENTS.md) before querying: `confidence` is encoded differently per instrument and `type` is NULL for all near-real-time rows.",
   "license": "CC0-1.0",
   "keywords": [
     "fire",
@@ -23,7 +23,7 @@
     "FIRMS",
     "near real-time"
   ],
-  "updated": "2026-09-15T07:32:02Z",
+  "updated": "2026-09-16T07:21:59Z",
   "providers": [
     {
       "name": "NASA LANCE FIRMS",
@@ -57,7 +57,7 @@
       "interval": [
         [
           "2000-11-01T00:13:00Z",
-          "2026-09-14T17:49:00Z"
+          "2026-09-15T05:46:00Z"
         ]
       ]
     }
@@ -74,7 +74,7 @@
   "partition:file_count": 27,
   "partition:glob": "s3://portolan-mirrors/firms-catalog/detections/year=*/detections.parquet",
   "table:primary_geometry": "geometry",
-  "table:row_count": 631316915,
+  "table:row_count": 631469093,
   "table:columns": [
     {
       "name": "geometry",
@@ -207,17 +207,35 @@
         "features"
       ]
     },
-    "pmtiles-alltime": {
-      "href": "./alltime.pmtiles",
-      "type": "application/vnd.pmtiles",
-      "title": "All years, monthly aggregate, vector tiles",
+    "aggregate-r5": {
+      "href": "./alltime-r5.parquet",
+      "type": "application/vnd.apache.parquet",
+      "title": "All years aggregated to a5 r5, monthly columns",
       "roles": [
-        "visual",
-        "overview"
-      ],
-      "pmtiles:layers": [
+        "data",
         "aggregate"
-      ]
+      ],
+      "file:size": 3364679
+    },
+    "aggregate-r8": {
+      "href": "./alltime-r8.parquet",
+      "type": "application/vnd.apache.parquet",
+      "title": "All years aggregated to a5 r8, monthly columns",
+      "roles": [
+        "data",
+        "aggregate"
+      ],
+      "file:size": 42756730
+    },
+    "aggregate-r10": {
+      "href": "./alltime-r10.parquet",
+      "type": "application/vnd.apache.parquet",
+      "title": "All years aggregated to a5 r10, monthly columns",
+      "roles": [
+        "data",
+        "aggregate"
+      ],
+      "file:size": 319407523
     },
     "thumbnail": {
       "href": "./detections.thumb.jpg",
@@ -236,8 +254,8 @@
       "roles": [
         "logo"
       ],
-      "file:size": 78425,
-      "file:checksum": "1220d2eb364e6cd553be966a05743e917c573ac7b8ad2847ece835a545b01d32b3f3"
+      "file:size": 77127,
+      "file:checksum": "122033bf5d509161b64edd98f2b22b2acd42808b93b40ef010da4a8e55189c7556eb"
     }
   },
   "links": [

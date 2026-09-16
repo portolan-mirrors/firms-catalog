@@ -63,23 +63,27 @@ have no `acq_date`, and `live.parquet` repeats rows that `detections.parquet`
 already holds. `partition:glob` in the collection names
 `year=*/detections.parquet` for this reason.
 
-One GeoParquet 2.0 file per year, hive-partitioned on `year` only. Rows inside
-each file are ordered by `(_month, _hilbert)`. That ordering is deliberate:
+One GeoParquet 2.0 file per year, hive-partitioned on `year` only, written
+with zstd level 22 and about 100,000 rows per row group **[derived]**. Rows
+inside each file are ordered along a Hilbert curve.
+
+What that ordering buys, measured on the 2010 file **[derived]**:
 
 - `year=` in the path prunes whole files without reading them.
-- Ordering by `_month` first makes Parquet row-group statistics on
-  `acq_datetime` prune to a single month **[derived]**. Measured on the 2020
-  file: row group 0 spans 2020-01-01..2020-01-31, row group 40 spans
-  2020-03-01..2020-03-31.
-- Ordering by `_hilbert` inside each month keeps each row group spatially tight,
-  so a bounding-box filter prunes as well **[derived]**: row group 40 covers
-  0.5% of the globe's Hilbert range.
-
-A pure Hilbert sort would scatter every month across the whole file and remove
-month pruning entirely. That trade-off is why both keys exist.
+- A bounding-box filter prunes row groups, because the Hilbert sort keeps each
+  one spatially tight: row groups 1 to 4 cover 0.21%, 0.16%, 0.06% and 0.13% of
+  the globe. Row group 0 is the exception at 12.6%, being the sparse start of
+  the curve.
+- **A date filter does not prune row groups.** The sort is purely spatial, so
+  every row group spans the whole year: 0 of 48 row groups in the 2010 file sit
+  inside a single month. Filtering by date is correct but reads the file.
 
 Filter on `year` explicitly when you can. A predicate on `acq_date` alone does
 not prune the partition, because the reader cannot map a date onto the path key.
+
+If you want a count or a sum over dates rather than the rows themselves, read
+the aggregates instead — they are built for exactly that and are a thousandth
+of the size.
 
 ## Columns
 
@@ -107,8 +111,6 @@ without deepening the directory tree.
 | `confidence` | VARCHAR | **as published, and it means different things per instrument** | attested |
 | `confidence_pct` | INTEGER | numeric confidence 0-100. **MODIS only, NULL for VIIRS** | derived |
 | `type` | INTEGER | 0 vegetation fire, 1 active volcano, 2 other static land source, 3 offshore. **NULL for all NRT rows** | attested |
-| `_month` | UTINYINT | 1-12, the sort key. Cheap month filter | derived |
-| `_hilbert` | UINTEGER | Hilbert index over the global extent, the spatial sort key | derived |
 
 `latitude` and `longitude` are **not** carried. `geometry` holds the same
 information. Recover them with `ST_X(geometry)` and `ST_Y(geometry)`.
@@ -275,14 +277,18 @@ SELECT count(*) FROM read_parquet(
   hive_partitioning = true);
 ```
 
-One year, one month, prunes on both the path key and row-group statistics:
+One year, one month. `year` prunes the file; the month does not prune row
+groups, because the sort is spatial, so this reads 2020 and filters:
 
 ```sql
 SELECT sensor, count(*) n, round(avg(frp), 1) mean_frp
 FROM read_parquet('.../detections/year=*/detections.parquet', hive_partitioning = true)
-WHERE year = 2020 AND _month = 8
+WHERE year = 2020 AND acq_date >= DATE '2020-08-01' AND acq_date < DATE '2020-09-01'
 GROUP BY sensor ORDER BY n DESC;
 ```
+
+If the per-sensor split is all you need, `aggregate-r5.parquet` answers it from
+2 MB rather than 800, and agrees exactly — see the aggregates section.
 
 High-power night-time detections in a bounding box. This one returns the
 January 2020 Australian fires:
