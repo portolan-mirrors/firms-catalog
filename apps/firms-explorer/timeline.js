@@ -1076,9 +1076,21 @@ export class Timeline {
   }
 
   _onUp(e) {
+    const was = this._drag != null || this._pinch != null;
     this._pointers.delete(e.pointerId);
     if (this._pointers.size < 2) this._pinch = null;
     if (this._pointers.size === 0) this._drag = null;
+    // Emit once more when the gesture ends.
+    //
+    // Every emit during a drag carries dragging:true, and without this there
+    // was never one carrying false -- so a listener that waits for the gesture
+    // to finish waited forever. Both of them do: switching archives is far too
+    // expensive to run per frame, so the containment rule and the archive the
+    // selection picks are deliberately deferred to the end of the gesture, and
+    // the end never arrived. Dragging a selection into another year therefore
+    // left the map on the old archive, while creating a fresh selection
+    // elsewhere worked, because that path was not a drag.
+    if (was && this._pointers.size === 0) this._emit();
   }
 
   _onKey(e) {

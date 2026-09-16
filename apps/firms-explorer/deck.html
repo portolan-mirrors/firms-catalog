@@ -1258,6 +1258,11 @@ map.on("move", () => {
   // where the map correctly stops changing, so it needs saying on zoom rather
   // than on load -- there is no load to hang it off.
   reportNoPoints();
+  // And on the move, not only when a tile lands. tileProgress used to run from
+  // onTileLoad alone, so nothing was said until the first tile arrived -- which
+  // at the points band is the better part of a second after the zoom, which is
+  // precisely the silence the message exists to fill.
+  tileProgress();
 });
 
 // -------------------------------------------------------------- the timeline
