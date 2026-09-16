@@ -143,6 +143,7 @@ import {Timeline, makeAxis, formatKey, keyToISO, isoToKey, COUNT_RAMP}
   from "./timeline.js";
 import {bandAt, chooseArchive, keyDayRange, parseJSONish, pointsMinZoom,
         pyramid, shippedStops, timelineFromMetadata} from "./archives.js";
+import {axisFor, gapsIn} from "./mounted.js";
 import {Stats} from "./stats.js";
 import {DECK_TILE_SIZE, TileCache, bucketIndex, countFor, fillFor, lngOverlaps,
         selectionPlan, tileZoom} from "./deck-cells.js";
@@ -225,6 +226,11 @@ let S = {
   // deck.gl specifics: the open archive, its zoom range, and the tile cache
   // that stands in for querySourceFeatures.
   pm: null, fetch: null, maxZoom: 9, tiles: null, hasCum: null,
+  // What is actually loaded, keyed by archive id, as {unit, min, max}. The
+  // drawn axis can be wider than this -- that is the point -- so the two are
+  // kept apart: `axis` is what the timeline shows, `mounted` is what has the
+  // numbers behind it.
+  mounted: new Map(),
   bandBuckets: new Map(),
 };
 
@@ -390,6 +396,7 @@ async function mount(id, carry) {
   }
   S.id = id;
   S.available[id] = true;
+  S.mounted.set(id, {unit: read.meta.unit, min: read.meta.min, max: read.meta.max});
   Object.assign(S, read);
   S.axis = makeAxis(read.meta);
   S.tiles = new TileCache(S.axis);
@@ -400,8 +407,16 @@ async function mount(id, carry) {
 
   // Mount the axis with no values: the counts are viewport-dependent and are
   // not known until tiles have loaded. The bars fill in as tiles arrive.
+  //
+  // The axis is widened past this archive when a neighbour is known to exist.
+  // Landing on the rolling window would otherwise give an eight-day timeline,
+  // and the hundred-day opening view would clamp to it -- the window is the
+  // cheapest thing to draw, not the whole story. The span it does not cover is
+  // reported as a gap so it draws hatched rather than as a row of empty bars.
   tl.metricLabel = "detections";
-  tl.setSource(read.meta, {});
+  const extent = widenedExtent(read.meta);
+  tl.setSource(extent, {});
+  tl.setGaps(gapsFor(extent));
   // Before applyCarry, not after: applyCarry emits, and the emit writes the
   // selection into the date inputs, which have to be the right type first.
   syncInputs();
@@ -419,6 +434,53 @@ async function mount(id, carry) {
   showNotes(arc, read);
   applySelection();
   scheduleHistogram();
+}
+
+/**
+ * The axis extent to draw, which is not always the mounted archive's own.
+ *
+ * `spans` on an archive says what a neighbour covers without it being loaded:
+ * the catalog knows the current year runs to today whether or not its tiles
+ * are here. Widening to that is what lets the opening view be a hundred days
+ * when the archive in hand holds eight, and what lets a drag run off the end
+ * of the rolling window into territory that is about to arrive.
+ */
+function widenedExtent(meta) {
+  const others = neighbourExtents(meta.unit);
+  if (!others.length) return meta;
+  const wide = axisFor([{unit: meta.unit, min: meta.min, max: meta.max},
+                        ...others]);
+  return wide ? {...meta, min: wide.min, max: wide.max, buckets: wide.buckets}
+              : meta;
+}
+
+/** Which bucket ranges of the drawn axis nothing has actually loaded. */
+function gapsFor(extent) {
+  const held = [...S.mounted.values()]
+    .filter(m => m.unit === extent.unit)
+    .map(m => ({unit: m.unit, min: m.min, max: m.max}));
+  return gapsIn(held, {unit: extent.unit, min: extent.min, max: extent.max,
+                       buckets: extent.buckets});
+}
+
+/**
+ * Extents of archives that exist but are not mounted, at this unit.
+ *
+ * Taken from the catalog rather than by reading the archives: the point is to
+ * widen the axis before paying for them. A year archive covers its calendar
+ * year, except the current one, which stops at the rolling window's last day.
+ */
+function neighbourExtents(unit) {
+  if (unit !== "day") return [];
+  const out = [];
+  const w = latestWindow();
+  for (const id of Object.keys(ARCHIVES)) {
+    if (!/^\d{4}$/.test(id) || S.available[id] === false) continue;
+    const y = Number(id);
+    const last = w && String(w.max).slice(0, 4) === id ? String(w.max) : `${y}1231`;
+    out.push({unit: "day", min: `${y}0101`, max: last});
+  }
+  return out;
 }
 
 function showNotes(arc, read) {

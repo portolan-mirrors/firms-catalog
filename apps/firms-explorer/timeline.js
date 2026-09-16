@@ -359,16 +359,16 @@ export function quantize(width, count) {
 const HANDLE_W = 6;
 
 // Opening view: select the last week, show the last nine months around it.
-// Five days selected, sixty shown around them.
+// Five days selected, a hundred shown around them.
 //
 // Both are chosen against what the landing archive can serve cheaply. The
 // rolling window is the smallest tileset published -- 0.27 MB of z2 against
 // all-time's 3.98 MB, because its cells carry eight daily columns rather than
 // three hundred monthly ones -- so opening on it is what makes the first paint
-// quick. Nine months of context could only come from an archive forty times
-// heavier, and it was context nobody had asked to see yet.
+// quick. The rest of the hundred days arrives behind it from the year
+// archive, and reads as unloaded until it does.
 export const DEFAULT_SELECT_DAYS = 5;
-export const DEFAULT_WINDOW_DAYS = 60;
+export const DEFAULT_WINDOW_DAYS = 100;
 // Breathing room either side when fitting the domain to the selection.
 const FIT_MARGIN = 0.12;
 
@@ -497,6 +497,11 @@ export class Timeline {
 
     this.axis = null;
     this.series = makeSeries([]);
+    // Bucket ranges inside the axis that no loaded archive covers, as
+    // [from, to] index pairs. Drawn hatched rather than as zero-height bars:
+    // a flat bar says "no fires here", which is a different claim from "not
+    // loaded yet" and is usually false.
+    this.gaps = [];
     this.domain = [0, 1];
     this.selection = {from: 0, to: 0};
     this.hover = null;
@@ -545,6 +550,12 @@ export class Timeline {
   }
 
   /** Mount a `firms:timeline` declaration and its bucket values. */
+  /** Ranges the axis spans but nothing has loaded. See `gaps`. */
+  setGaps(ranges) {
+    this.gaps = Array.isArray(ranges) ? ranges : [];
+    this.draw();
+  }
+
   setSource(meta, buckets) {
     this.axis = makeAxis(meta);
     this.series = seriesFromBuckets(this.axis, buckets);
@@ -768,6 +779,30 @@ export class Timeline {
       ctx.moveTo(x, 0);
       ctx.lineTo(x, trackH);
       ctx.stroke();
+    }
+
+    // Hatching goes down before the bars, so a span that is half loaded shows
+    // its bars over the hatch rather than the hatch hiding them.
+    for (const [g0, g1] of this.gaps) {
+      const x0 = coordToX(g0, this.domain, W);
+      const x1 = coordToX(g1 + 1, this.domain, W);
+      if (x1 <= 0 || x0 >= W) continue;
+      const a = Math.max(0, x0), b = Math.min(W, x1);
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(a, 0, b - a, trackH);
+      ctx.clip();
+      ctx.strokeStyle = "rgba(148,163,184,.22)";
+      ctx.lineWidth = 1;
+      // 45 degrees, every 7px. Diagonal so it cannot be mistaken for the
+      // vertical gridlines or for one-pixel bars.
+      for (let x = a - trackH; x < b + trackH; x += 7) {
+        ctx.beginPath();
+        ctx.moveTo(x, trackH);
+        ctx.lineTo(x + trackH, 0);
+        ctx.stroke();
+      }
+      ctx.restore();
     }
 
     let max = 0;

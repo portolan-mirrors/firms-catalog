@@ -395,13 +395,14 @@ eq("nine months is 274 daily buckets", selBuckets("day", 274), 274);
 // ------------------------------------------------------------------- report
 
 
-// The landing defaults decide which archive the app opens on, and so how heavy
-// the first paint is. Five days inside sixty fits the rolling window, whose z2
-// tiles total 0.27 MB; nine months of context could only come from an archive
-// fifteen times heavier at that zoom. Widening either pulls that back in
-// silently, because the map still works -- it just loads far more.
+// The landing defaults decide what is on screen before anything is fetched.
+// Five days selected is what the rolling window can serve immediately -- its
+// z2 tiles total 0.27 MB. A hundred days of context is deliberately more than
+// that archive holds: the rest arrives from the year archive behind it, and
+// reads as hatched until it does. The selection must stay inside what lands
+// first, or the opening view is empty while it waits.
 eq("default selection is five days", DEFAULT_SELECT_DAYS, 5);
-eq("default window is sixty days", DEFAULT_WINDOW_DAYS, 60);
+eq("default window is a hundred days", DEFAULT_WINDOW_DAYS, 100);
 ok("the selection fits inside the window",
    DEFAULT_SELECT_DAYS < DEFAULT_WINDOW_DAYS,
    `select ${DEFAULT_SELECT_DAYS} vs window ${DEFAULT_WINDOW_DAYS}`);
