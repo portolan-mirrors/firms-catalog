@@ -23,7 +23,7 @@
     "FIRMS",
     "near real-time"
   ],
-  "updated": "2026-09-16T07:21:59Z",
+  "updated": "2026-09-16T07:23:20Z",
   "providers": [
     {
       "name": "NASA LANCE FIRMS",
@@ -254,8 +254,8 @@
       "roles": [
         "logo"
       ],
-      "file:size": 77127,
-      "file:checksum": "122033bf5d509161b64edd98f2b22b2acd42808b93b40ef010da4a8e55189c7556eb"
+      "file:size": 68835,
+      "file:checksum": "12205244fa03544ed8c4ff4d8ef03ef27c8f3a8c98753a526ee3f4fed1eb84df1cc9"
     }
   },
   "links": [
