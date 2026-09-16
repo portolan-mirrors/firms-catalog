@@ -238,6 +238,11 @@ let S = {
   // The archive being replaced, kept drawing until its successor can cover
   // the screen. Null except during a switch.
   outgoing: null,
+  // How many buckets the mounted archive itself declares, which is not
+  // axis.declaredBuckets once the axis is widened past it. firms:breaks was
+  // computed over this archive's whole record, so it is this count a
+  // selection is a fraction of.
+  archiveBuckets: 0,
   // What is actually loaded, keyed by archive id, as {unit, min, max}. The
   // drawn axis can be wider than this -- that is the point -- so the two are
   // kept apart: `axis` is what the timeline shows, `mounted` is what has the
@@ -428,6 +433,7 @@ async function mount(id, carry) {
   // fine. Widening the timeline without widening this is exactly that bug.
   const extent = widenedExtent(read.meta);
   S.axis = makeAxis(extent);
+  S.archiveBuckets = makeAxis(read.meta).count;
   S.tiles = new TileCache(S.axis);
   S.fetch = splitFetch(read.pm);
   S.hasCum = null;
@@ -584,7 +590,11 @@ function statsDriven(band = currentBand()) {
  * the scale is 1 and the shipped breaks are used exactly as published.
  */
 function stopsFor(band, nsel) {
-  const scale = nsel / Math.max(1, S.axis.declaredBuckets);
+  // Against the archive's own record, not the drawn axis. Widening the axis
+  // to 9,755 days while the breaks describe 258 divided every threshold by
+  // thirty-eight and put almost every cell in the top class -- the map went
+  // uniformly red and stayed that way.
+  const scale = nsel / Math.max(1, S.archiveBuckets || S.axis.declaredBuckets);
   const st = band && S.breaks
     ? shippedStops(S.breaks, band.level, "count", COUNT_RAMP, scale) : null;
   return {stops: st || COUNT_RAMP, scale};
@@ -947,7 +957,7 @@ function renderLegend(stops, scale, nsel) {
     n.textContent = "Shipped data breaks, whole record.";
   } else {
     n.textContent = `Shipped data breaks scaled to the ${nsel} of ` +
-      `${S.axis.declaredBuckets} buckets selected.`;
+      `${S.archiveBuckets || S.axis.declaredBuckets} buckets selected.`;
   }
 }
 

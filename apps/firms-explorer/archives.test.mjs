@@ -170,10 +170,14 @@ eq("a whole published year takes that year",
 eq("a year with no archive falls back",
    chooseArchive({from: "201903", to: "201908"}, "month", AVAIL), "alltime");
 
-// The accepted limitation, spelled out: four months is narrower than a year
-// but crosses a year boundary, so it cannot be served daily by one archive.
-eq("November to February falls back to all-time",
-   chooseArchive({from: "201911", to: "202002"}, "month", AVAIL), "alltime");
+// This used to fall back to all-time, and that was the wrong trade. Four
+// months crossing a year boundary cannot be served whole by one daily
+// archive, but dropping to monthly changes the resolution in response to a
+// sideways drag. Staying on the year that holds more of the view keeps the
+// grain the user chose; the months outside it draw hatched, which says "not
+// loaded" rather than silently re-rendering everything a month at a time.
+eq("November to February stays daily on the year holding more of it",
+   chooseArchive({from: "201911", to: "202002"}, "month", AVAIL), "2020");
 eq("the whole record is all-time",
    chooseArchive({from: "200011", to: "202609"}, "month", AVAIL), "alltime");
 eq("with no rolling archive known, a recent week is not routed to one",
@@ -191,6 +195,28 @@ eq("a day key covers itself", keyDayRange("20200229", "day"),
    ["20200229", "20200229"]);
 
 // ------------------------------------------------------------------- report
+
+
+// Dragging sideways across New Year must not change the resolution. It used
+// to drop to the monthly archive, because no single year covers the view --
+// a zoom the user did not ask for, every time a drag crossed 1 January.
+{
+  const av = {years: ["2024", "2025", "2026"],
+              latest: {min: "20260907", max: "20260915"}};
+  eq("a view inside the rolling window uses it",
+     chooseArchive({from: "20260910", to: "20260914"}, "day", av), "latest");
+  eq("a view inside one year uses that year",
+     chooseArchive({from: "20260301", to: "20260901"}, "day", av), "2026");
+  eq("straddling New Year stays daily on the year holding more of the view",
+     chooseArchive({from: "20251220", to: "20260210"}, "day", av), "2026");
+  eq("and the other way round",
+     chooseArchive({from: "20251001", to: "20260105"}, "day", av), "2025");
+  eq("beyond two years it is a real zoom out, so monthly",
+     chooseArchive({from: "20240601", to: "20260601"}, "day", av), "alltime");
+  eq("an unavailable year falls back to its neighbour, not to monthly",
+     chooseArchive({from: "20251220", to: "20260210"}, "day",
+                   {years: ["2025"], latest: null}), "2025");
+}
 
 if (errors.length) {
   console.log(errors.map(e => `error  ${e}`).join("\n"));

@@ -201,7 +201,41 @@ export function chooseArchive(domain, unit, available = {}) {
   const [, d1] = keyDayRange(domain.to, unit);
   const latest = available.latest;
   if (latest && d0 >= latest.min && d1 <= latest.max) return "latest";
-  const y = d0.slice(0, 4);
-  if (y === d1.slice(0, 4) && (available.years || []).includes(y)) return y;
+  const years = available.years || [];
+  const y0 = d0.slice(0, 4), y1 = d1.slice(0, 4);
+  if (y0 === y1 && years.includes(y0)) return y0;
+
+  // A view straddling New Year used to fall straight to the monthly archive,
+  // because no single year archive covers it. Dropping from daily to monthly
+  // is a change of resolution the user did not ask for -- they dragged
+  // sideways, not out -- and it happened every time a drag crossed 1 January.
+  //
+  // Across two adjacent years, stay daily on whichever holds more of the view.
+  // The remainder is outside the mounted archive and draws hatched, which says
+  // "not loaded" rather than quietly re-rendering everything a month at a
+  // time. Wider than two years is a genuine zoom out, and monthly is the
+  // archive built for it.
+  if (Number(y1) - Number(y0) === 1) {
+    const boundary = `${y1}0101`;
+    const inFirst = days(d0, prevDay(boundary));
+    const inSecond = days(boundary, d1);
+    const pick = inSecond >= inFirst ? y1 : y0;
+    const other = pick === y1 ? y0 : y1;
+    if (years.includes(pick)) return pick;
+    if (years.includes(other)) return other;
+  }
   return "alltime";
+}
+
+/** Whole days from one YYYYMMDD to another, inclusive. */
+function days(a, b) {
+  const d = k => Date.UTC(+k.slice(0, 4), +k.slice(4, 6) - 1, +k.slice(6, 8));
+  return Math.floor((d(b) - d(a)) / 86400000) + 1;
+}
+
+function prevDay(key) {
+  const t = Date.UTC(+key.slice(0, 4), +key.slice(4, 6) - 1, +key.slice(6, 8)) - 86400000;
+  const d = new Date(t);
+  return `${d.getUTCFullYear()}${String(d.getUTCMonth() + 1).padStart(2, "0")}` +
+         `${String(d.getUTCDate()).padStart(2, "0")}`;
 }
