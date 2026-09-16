@@ -398,7 +398,13 @@ async function mount(id, carry) {
   S.available[id] = true;
   S.mounted.set(id, {unit: read.meta.unit, min: read.meta.min, max: read.meta.max});
   Object.assign(S, read);
-  S.axis = makeAxis(read.meta);
+  // One axis, shared. The timeline emits selection indices against whatever
+  // axis it was given, and everything downstream resolves those indices
+  // through S.axis -- so if the two differ the lookups land on the wrong day,
+  // or off the end entirely, and the map goes blank while the bar chart looks
+  // fine. Widening the timeline without widening this is exactly that bug.
+  const extent = widenedExtent(read.meta);
+  S.axis = makeAxis(extent);
   S.tiles = new TileCache(S.axis);
   S.fetch = splitFetch(read.pm);
   S.hasCum = null;
@@ -414,7 +420,6 @@ async function mount(id, carry) {
   // cheapest thing to draw, not the whole story. The span it does not cover is
   // reported as a gap so it draws hatched rather than as a row of empty bars.
   tl.metricLabel = "detections";
-  const extent = widenedExtent(read.meta);
   tl.setSource(extent, {});
   tl.setGaps(gapsFor(extent));
   // Before applyCarry, not after: applyCarry emits, and the emit writes the
