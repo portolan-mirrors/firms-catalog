@@ -152,7 +152,7 @@ import {Timeline, makeAxis, formatKey, keyToISO, isoToKey, COUNT_RAMP}
   from "./timeline.js";
 import {bandAt, chooseArchive, keyDayRange, parseJSONish, pointsMinZoom,
         pyramid, shippedStops, timelineFromMetadata} from "./archives.js";
-import {axisFor, gapsIn} from "./mounted.js";
+import {axisFor, gapsIn, ownerOf} from "./mounted.js";
 import {Stats} from "./stats.js";
 import {DECK_TILE_SIZE, TileCache, bucketIndex, countFor, fillFor, lngOverlaps,
         selectionPlan, tileZoom} from "./deck-cells.js";
@@ -376,6 +376,31 @@ async function readArchive(url) {
  * `carry` is {view:[d0,d1], sel:[d0,d1]} in YYYYMMDD: dates survive a change
  * of bucket unit where indices do not.
  */
+/**
+ * Archives already read, by id.
+ *
+ * Reading one is a header fetch, a root directory and the metadata -- three
+ * round trips against this bucket, so two to six seconds. Coming back to an
+ * archive is common now that the selection decides which one draws: five days
+ * selected uses the rolling window, a wider drag uses the year, and narrowing
+ * again comes straight back. Re-reading on every hop would make the thing the
+ * user does most the thing that costs most.
+ *
+ * The PMTiles handle is what is kept, not the tiles: those live in deck's own
+ * tileset and in the per-archive TileCache below.
+ */
+const _reads = new Map();
+
+/**
+ * Tile caches, by archive id, kept alongside the reads.
+ *
+ * The histogram sums whatever the viewport holds, and after a handover the
+ * outgoing archive still holds tiles the incoming one has not fetched yet.
+ * Throwing its cache away made the bar chart drop to what had arrived so far
+ * and climb back, which reads as the data changing when only the source did.
+ */
+const _caches = new Map();
+
 async function mount(id, carry) {
   const arc = ARCHIVES[id];
   if (!arc) return;
@@ -384,9 +409,12 @@ async function mount(id, carry) {
 
   // Read the new archive BEFORE tearing down the old one, so a switch that is
   // triggered by zooming does not blank the map for a network round trip.
-  let read;
+  let read = _reads.get(id);
   try {
-    read = await readArchive(arc.url);
+    if (!read) {
+      read = await readArchive(arc.url);
+      _reads.set(id, read);
+    }
   } catch (e) {
     S.available[id] = false;
     renderArchiveControl();
@@ -434,7 +462,8 @@ async function mount(id, carry) {
   const extent = widenedExtent(read.meta);
   S.axis = makeAxis(extent);
   S.archiveBuckets = makeAxis(read.meta).count;
-  S.tiles = new TileCache(S.axis);
+  if (!_caches.has(id)) _caches.set(id, new TileCache(S.axis));
+  S.tiles = _caches.get(id);
   S.fetch = splitFetch(read.pm);
   S.hasCum = null;
   S.bandBuckets = new Map();
@@ -828,6 +857,38 @@ function deepen() {
   mount(want, currentCarry()).finally(() => setStatus("deepen", null));
 }
 
+/**
+ * Let the selection decide which archive draws.
+ *
+ * The rolling window and the year archive overlap on the last few days and
+ * disagree there: the window is rebuilt hourly and the year daily, so today is
+ * complete in the window and partial in the year. Once the year had loaded it
+ * served everything, and the default five-day selection quietly under-reported
+ * the most recent day -- a real number, just the wrong one, with nothing on
+ * screen to say so.
+ *
+ * So whichever mounted archive owns the selection's newest bucket draws it.
+ * Five days selected comes from the window and is complete; drag wider and the
+ * year takes over, because the window does not reach that far. The archives are
+ * cached, so hopping between them is a relabel rather than a reload, and the
+ * handover keeps the old one painting until the new one can.
+ *
+ * Only the newest bucket is consulted. A selection spanning the boundary cannot
+ * be served whole by either, and the one holding its recent end is the one whose
+ * numbers are freshest; the shortfall is what the partial-selection line reports.
+ */
+function activateOwner() {
+  if (!S.axis || !S.sel || !autoSwitchOn()) return;
+  const held = [...S.mounted.entries()]
+    .filter(([, m]) => m.unit === S.axis.unit)
+    .map(([id, m]) => ({...m, id, rebuilt: id === "latest" ? 2 : 1}));
+  if (held.length < 2) return;
+  const key = S.axis.keyAt(S.sel.to);
+  const owner = ownerOf(held, key);
+  if (!owner || owner.id === S.id) return;
+  mount(owner.id, currentCarry());
+}
+
 /** The deck.gl layers for the mounted archive. */
 function buildLayers() {
   if (!S.axis || !S.pm) return [];
@@ -1095,6 +1156,8 @@ function onTimeline(e) {
   S.sel = {...e.selection};
   applySelection();
   reportPartialSelection();
+  // After the readouts, so a switch does not race the numbers it replaces.
+  if (!e.dragging) activateOwner();
   const a = el("selfrom"), b = el("selto");
   if (e.keys && S.axis) {
     const u = S.axis.unit;
