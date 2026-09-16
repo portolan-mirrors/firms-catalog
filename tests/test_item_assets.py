@@ -49,6 +49,29 @@ if not items:
     print("no items to check; skipping")
     raise SystemExit(0)
 
+# The layout contract the explorer relies on.
+#
+# apps/firms-explorer/deck.html used to learn the per-year archives by reading
+# collection.json, then all 27 items, then range-probing all 27 pmtiles: 55
+# requests before it could draw, to rediscover a naming scheme that has never
+# varied. It now derives them -- year=<Y>/fire-<Y>.pmtiles for 2000..thisYear.
+#
+# That trades a runtime check for a build-time one, which only works if the
+# build-time one exists. This is it. If make_items.py ever renames the asset
+# or moves the directory, the explorer would silently 404 on every year; this
+# fails first, offline, with the reason.
+for path in items:
+    doc = json.loads(path.read_text())
+    year = doc["id"]
+    check(path.parent.name == f"year={year}",
+          f"{path}: item {year} is not in year={year}/; deck.html derives "
+          f"that directory and would 404")
+    asset = (doc.get("assets") or {}).get("pmtiles")
+    if asset is not None:
+        check(asset.get("href") == f"./fire-{year}.pmtiles",
+              f"{path}: pmtiles href is {asset.get('href')!r}, not "
+              f"'./fire-{year}.pmtiles'; deck.html derives that name")
+
 probe = head("https://data.source.coop/portolan-mirrors/firms-catalog/"
              "detections/collection.json")
 if probe is None:
@@ -75,4 +98,5 @@ for path in items:
 if errors:
     print("\n".join(f"error  {e}" for e in errors))
     raise SystemExit(1)
-print(f"OK: {checked} item asset(s) across {len(items)} item(s) resolve")
+print(f"OK: {checked} item asset(s) across {len(items)} item(s) resolve, "
+      f"and all {len(items)} follow the year=<Y>/fire-<Y>.pmtiles layout")

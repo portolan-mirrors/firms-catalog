@@ -57,22 +57,26 @@
  .spacer{flex:1}
  .note{font-size:10px;color:var(--warn);line-height:1.35;padding:0 12px 8px;display:none}
  .over .note{padding:6px 0 0;display:block}
- /* Over the map, just above the timeline, where the eye already is. In the
-    side panel this was dim ten-pixel text under a row of numbers, and it
-    cleared in about two seconds -- technically present and never once seen. */
- .status{position:absolute;left:50%;transform:translateX(-50%);
-   bottom:calc(var(--dock-h, 150px) + 14px);z-index:6;
-   max-width:min(520px,72vw);padding:8px 12px;border-radius:7px;
-   background:rgba(18,20,26,.93);border:1px solid var(--line);
-   box-shadow:0 6px 20px rgba(0,0,0,.42);
-   font-size:11.5px;color:#dbe3ee;line-height:1.4;display:none;
-   pointer-events:none}
- .status.on{display:block}
- .status .bar{height:3px;background:rgba(148,163,184,.2);border-radius:2px;
-   margin-top:6px;overflow:hidden}
+ /* In the toolbar, in the gap between the controls and the readouts. It was
+    over the map, which read as an alert for something that is routine. The
+    row already reserves this space, so an appearing message shifts nothing:
+    the flex spacer next to it absorbs the width. */
+ .status{display:none;align-items:center;gap:8px;min-width:0;
+   font-size:10.5px;color:#c3cddb;line-height:1.3}
+ /* Outgrows the spacer 8:1, so a message claims the free middle of the row
+    rather than splitting it, and ellipses only once the row is genuinely
+    full. The spacer still does the pushing when there is no message. */
+ .status.on{display:flex;flex:8 1 0}
+ .status > span{min-width:0;overflow:hidden;text-overflow:ellipsis;
+   white-space:nowrap}
+ /* .hint is the toolbar's link-button class, which is display:none until a
+    fit hint exists. Same name, different element; put this one back. */
+ .status > span.hint{display:block;flex:0 1 auto;color:var(--warn);
+   text-decoration:none;cursor:default}
+ .status .bar{display:block;flex:none;width:52px;height:3px;padding:0;
+   background:rgba(148,163,184,.22);border-radius:2px;overflow:hidden}
  .status .bar i{display:block;height:100%;background:#e8722c;
    transition:width .18s linear}
- .status .hint{color:var(--warn)}
  .legend{display:flex;flex-direction:column;gap:2px}
  .lgrow{display:flex;align-items:center;gap:7px;font-size:10.5px;color:var(--dim)}
  .sw{width:15px;height:10px;border-radius:2px;flex:none}
@@ -113,7 +117,6 @@
       <div class="row"><span>histogram</span><b id="ms">–</b></div>
     </div>
   </div>
-  <div class="status" id="status"></div>
   <div id="pop"><span class="x" id="popx">✕</span>
     <div class="grp">Cell</div><table id="pt" style="width:100%;border-collapse:collapse;
       font-size:10.5px;margin-top:6px"></table></div>
@@ -134,6 +137,7 @@
       <button id="zout" title="Zoom out around the selection">−</button>
       <button id="fit" title="Fit the view to the selection (F)">Fit</button>
     </div>
+    <span class="status" id="status"></span>
     <span class="spacer"></span>
     <span class="kv">selection
       <input id="selfrom" class="dt" aria-label="Selection start">
@@ -186,8 +190,8 @@ const FRP_RAMP = [
 ];
 const el = id => document.getElementById(id);
 
-// The two archives with no STAC item of their own. Every year comes from the
-// catalog in discoverYears(), so a newly tiled year appears without an edit.
+// The two archives with a fixed name. The per-year ones are filled in by
+// listYears(), which derives them from the clock rather than the catalog.
 const ARCHIVES = {
   alltime: {label: "All time · monthly", url: `${BASE}/alltime.pmtiles`,
             presets: [["1y", 12], ["5y", 60], ["all", null]]},
@@ -261,55 +265,38 @@ let S = {
 
 // -------------------------------------------------------------- discovery
 
-/**
- * A cheap reachability probe. A STAC item advertising a `pmtiles` asset is
- * not proof the archive exists, so nothing is mounted until it has answered.
- */
-async function reachable(url) {
-  try {
-    const r = await fetch(url, {headers: {Range: "bytes=0-127"}});
-    return r.ok;            // 206 for a served range, 200 if ranges are ignored
-  } catch {
-    return false;
-  }
-}
+// FIRMS' MODIS record opens in November 2000; there is no earlier year to
+// offer. The upper bound comes from the clock rather than a literal, so the
+// list extends itself on New Year with no edit here.
+const FIRST_YEAR = 2000;
 
-async function discoverYears() {
-  const collUrl = `${BASE}/collection.json`;
-  let coll;
-  try {
-    // Bust the collection, which is one small request per load, then key the
-    // items off its `updated` stamp; see index.html for the stale-CDN story.
-    coll = await (await fetch(`${collUrl}?cb=${Date.now()}`)).json();
-  } catch (e) {
-    console.warn("collection unavailable; the year list stays empty", e);
-    return;
-  }
-  const ver = coll.updated ? `?v=${encodeURIComponent(coll.updated)}` : "";
-  const items = (coll.links || []).filter(l => l.rel === "item");
-  const found = await Promise.all(items.map(async l => {
-    const href = new URL(l.href, collUrl).toString();
-    try {
-      const item = await (await fetch(href + ver)).json();
-      const asset = (item.assets || {}).pmtiles;
-      if (!asset) return null;                    // published, not yet tiled
-      const url = new URL(asset.href, href).toString();
-      if (!await reachable(url)) {
-        console.warn(`${item.id} advertises a pmtiles asset that 404s; skipping`);
-        return null;
-      }
-      return {id: item.id, url, label: `${item.id} · daily`,
-              presets: [["7d", 7], ["30d", 30], ["90d", 90], ["all", null]]};
-    } catch (e) {
-      console.warn("skipping item " + href, e);
-      return null;
-    }
-  }));
-  // Newest first: the recent years are the ones anyone reaches for.
-  for (const y of found.filter(Boolean).sort((a, b) => b.id.localeCompare(a.id))) {
-    if (OVERRIDDEN.has(y.id)) continue;      // an ?add= override wins
-    ARCHIVES[y.id] = y;
-    ORDER.push(y.id);
+/**
+ * The per-year archives, derived rather than discovered.
+ *
+ * This used to read collection.json, then every item, then probe every
+ * pmtiles with a range request: 55 requests before the map could draw, to
+ * learn a list that is `2000..thisYear` and URLs that are one printf. The
+ * catalog is the authority on what exists, but the app does not need to ask
+ * it at runtime. The layout is a contract, and tests/test_item_assets.py
+ * asserts it: every item sits in year=<Y>/ and names ./fire-<Y>.pmtiles. A
+ * rename there fails the tests rather than this map.
+ *
+ * The cost of being wrong is small and self-correcting. A year the catalog
+ * does not have yet (fire-2027, in the hours after New Year before the
+ * rebuild lands) fails its first read, and mount() marks it unavailable and
+ * drops it from the picker. That is one failed request, once, for whoever
+ * hits that window -- against 55 on every load for everyone else.
+ */
+function listYears() {
+  for (let y = new Date().getUTCFullYear(); y >= FIRST_YEAR; y--) {
+    const id = String(y);
+    if (OVERRIDDEN.has(id)) continue;          // an ?add= override wins
+    ARCHIVES[id] = {
+      id, url: `${BASE}/year=${id}/fire-${id}.pmtiles`,
+      label: `${id} · daily`,
+      presets: [["7d", 7], ["30d", 30], ["90d", 90], ["all", null]],
+    };
+    ORDER.push(id);                            // newest first, as the loop runs
   }
 }
 
@@ -772,7 +759,7 @@ function setStatus(key, html, pct) {
   if (!_status.size) { el_.className = "status"; el_.innerHTML = ""; return; }
   el_.className = "status on";
   el_.innerHTML = [..._status.values()].map(m =>
-    m.html + (m.pct == null ? "" :
+    `<span>${m.html}</span>` + (m.pct == null ? "" :
       `<div class="bar"><i style="width:${Math.round(m.pct * 100)}%"></i></div>`)
   ).join("");
 }
@@ -1560,11 +1547,9 @@ function showCell(info) {
 
 // ----------------------------------------------------------------- start-up
 
-const discovered = discoverYears();
+listYears();
 renderArchiveControl();
 map.on("load", async () => {
-  await discovered;
-  renderArchiveControl();
   try {
     const r = await readArchive(ARCHIVES.latest.url);
     if (r.meta && r.meta.unit === "day")
