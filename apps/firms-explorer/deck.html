@@ -57,6 +57,14 @@
  .spacer{flex:1}
  .note{font-size:10px;color:var(--warn);line-height:1.35;padding:0 12px 8px;display:none}
  .over .note{padding:6px 0 0;display:block}
+ .status{font-size:10px;color:var(--dim);line-height:1.35;padding:6px 0 0;
+   display:none;border-top:1px solid var(--line);margin-top:7px}
+ .status.on{display:block}
+ .status .bar{height:2px;background:rgba(148,163,184,.18);border-radius:1px;
+   margin-top:4px;overflow:hidden}
+ .status .bar i{display:block;height:100%;background:var(--accent, #e8722c);
+   transition:width .18s linear}
+ .status .hint{color:var(--warn)}
  .legend{display:flex;flex-direction:column;gap:2px}
  .lgrow{display:flex;align-items:center;gap:7px;font-size:10.5px;color:var(--dim)}
  .sw{width:15px;height:10px;border-radius:2px;flex:none}
@@ -95,6 +103,7 @@
       <div class="row"><span>zoom</span><b id="z">–</b></div>
       <div class="row"><span id="nlabel">cells in view</span><b id="ncells">–</b></div>
       <div class="row"><span>histogram</span><b id="ms">–</b></div>
+      <div class="status" id="status"></div>
     </div>
   </div>
   <div id="pop"><span class="x" id="popx">✕</span>
@@ -677,6 +686,92 @@ function renderTile(p) {
   return out;
 }
 
+/**
+ * Transient status: what the map is doing that the map cannot show.
+ *
+ * Three things were invisible. Tiles at the points band take seconds to
+ * arrive and nothing moves meanwhile, so a visitor who does not already know
+ * they are coming zooms away from an empty map. A selection reaching into
+ * time no archive has loaded yet reports a total that is honest for what is
+ * loaded and wrong for what was asked. And zooming towards points while on a
+ * monthly archive can never show them, which looks like a broken map rather
+ * than a wrong altitude.
+ *
+ * Keyed rather than a queue: each condition owns its line and clears it when
+ * it resolves, so a message cannot outlive the thing it describes. That is
+ * the failure mode of a toast -- it says "loading" for three seconds whether
+ * or not loading took three seconds.
+ */
+const _status = new Map();
+
+function setStatus(key, html, pct) {
+  if (html == null) _status.delete(key);
+  else _status.set(key, {html, pct});
+  const el_ = el("status");
+  if (!_status.size) { el_.className = "status"; el_.innerHTML = ""; return; }
+  el_.className = "status on";
+  el_.innerHTML = [..._status.values()].map(m =>
+    m.html + (m.pct == null ? "" :
+      `<div class="bar"><i style="width:${Math.round(m.pct * 100)}%"></i></div>`)
+  ).join("");
+}
+
+/**
+ * Tiles in flight, as a fraction.
+ *
+ * deck.gl reports the tileset's own loading state; the count of tiles still
+ * pending against the number requested is the closest thing to progress that
+ * does not require knowing their sizes.
+ */
+function reportTileLoad(total, loaded) {
+  if (total <= 0 || loaded >= total) return setStatus("tiles", null);
+  const band = bandAt(S.bands, tileZoom(map.getZoom()));
+  const what = band && band.layer === PT_LAYER ? "detections" : "cells";
+  setStatus("tiles", `Loading ${what}… ${loaded} of ${total} tiles`,
+            loaded / total);
+}
+
+/**
+ * Whether the selection reaches into time nothing has loaded.
+ *
+ * The total shown is a true sum over what is loaded, which is not the sum the
+ * user asked for. Saying so is cheaper than either refusing the selection or
+ * quietly under-reporting it.
+ */
+function reportPartialSelection() {
+  if (!S.axis) return setStatus("partial", null);
+  const gaps = gapsFor(S.axis);
+  const hit = gaps.reduce((n, [a, b]) =>
+    n + Math.max(0, Math.min(b, S.sel.to) - Math.max(a, S.sel.from) + 1), 0);
+  if (!hit) return setStatus("partial", null);
+  const span = S.sel.to - S.sel.from + 1;
+  setStatus("partial",
+    `<span class="hint">Counting ${span - hit} of ${span} selected ` +
+    `${S.axis.unit}s.</span> The rest is still loading, so the totals and ` +
+    `colours will rise as it arrives.`);
+}
+
+/**
+ * Zooming towards detections on an archive that has none.
+ *
+ * The monthly archive stops at cells by design -- it covers twenty-seven
+ * years and individual detections would be billions of rows. The map simply
+ * stops refining, which reads as broken. It is not: it is the wrong archive
+ * for the question, and narrowing the time window switches to one that has
+ * them.
+ */
+function reportNoPoints() {
+  const z = tileZoom(map.getZoom());
+  const band = bandAt(S.bands, z);
+  const hasPoints = (S.bands || []).some(b => b.layer === PT_LAYER);
+  if (hasPoints || !S.axis || S.axis.unit !== "month" || z < (S.maxZoom || 9)) {
+    return setStatus("nopoints", null);
+  }
+  setStatus("nopoints",
+    `<span class="hint">This archive stops at cells.</span> Narrow the ` +
+    `time window to a year or less and individual detections appear.`);
+}
+
 /** The deck.gl layers for the mounted archive. */
 function buildLayers() {
   if (!S.axis || !S.pm) return [];
@@ -700,9 +795,9 @@ function buildLayers() {
     // at 6 they arrive in rounds and no-overlap waits for the last round.
     maxRequests: 20,
     pickable: true,
-    onTileLoad: onTile,
+    onTileLoad: t => { onTile(t); tileProgress(); },
     onTileUnload: onTileGone,
-    onViewportLoad: scheduleHistogram,
+    onViewportLoad: ts => { setStatus("tiles", null); scheduleHistogram(ts); },
     onClick: showCell,
     // The plan signature carries the archive, the selection and what the
     // tiles have revealed about themselves; the filter range is a uniform and
@@ -731,6 +826,29 @@ function onTile(t) {
   scheduleHistogram();
 }
 function onTileGone(t) { if (S.tiles) S.tiles.remove(t); }
+
+/**
+ * How much of the current viewport's tile set has arrived.
+ *
+ * Read off the layer rather than counted here: deck.gl already tracks which
+ * tiles the viewport needs and which have resolved, and a tally kept
+ * alongside it drifts the moment a tile is evicted or a request is dropped.
+ */
+function tileProgress() {
+  // MapboxOverlay keeps the deck instance internally; _deck is where the
+  // built layers with their tileset state live. Guarded at every hop because
+  // this is deck.gl internals, and a status line must never be the thing that
+  // throws.
+  const d = overlay._deck;
+  const layer = d && d.layerManager && d.layerManager.getLayers
+    ? d.layerManager.getLayers().find(l => String(l.id).startsWith("fire-"))
+    : null;
+  const tiles = layer && layer.state && layer.state.tileset
+    ? layer.state.tileset.selectedTiles : null;
+  if (!tiles || !tiles.length) return setStatus("tiles", null);
+  const loaded = tiles.filter(t => t.isLoaded).length;
+  reportTileLoad(tiles.length, loaded);
+}
 
 // Selection changes are coalesced to one repaint per frame and no more: a
 // change rewrites the cells' colour buffers, which is cheap enough that the
@@ -873,6 +991,10 @@ map.on("move", () => {
   const band = currentBand();
   const level = band ? band.level : null;
   if (level !== S.lastLevel) applySelection();
+  // Zooming towards detections the archive does not carry is the one case
+  // where the map correctly stops changing, so it needs saying on zoom rather
+  // than on load -- there is no load to hang it off.
+  reportNoPoints();
 });
 
 // -------------------------------------------------------------- the timeline
@@ -884,6 +1006,7 @@ window._explorer = S;
 function onTimeline(e) {
   S.sel = {...e.selection};
   applySelection();
+  reportPartialSelection();
   const a = el("selfrom"), b = el("selto");
   if (e.keys && S.axis) {
     const u = S.axis.unit;
