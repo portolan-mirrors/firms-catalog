@@ -796,6 +796,38 @@ function reportNoPoints() {
     `time window to a year or less and individual detections appear.`);
 }
 
+/**
+ * Once the quick archive is on screen, fetch the one behind it.
+ *
+ * Landing on the rolling window is what makes first paint fast -- eight days
+ * of tiles against a year's -- but it leaves ninety-odd days of the opening
+ * view hatched, and they stay hatched until something asks for them. The
+ * containment rule only asks when the view moves, so a visitor who does not
+ * touch anything is left looking at a mostly empty chart.
+ *
+ * So the view's own span is asked for as soon as the window has painted. The
+ * handover keeps the window drawing underneath while the year loads, so this
+ * costs nothing visible; it is the same switch the rule would make, taken
+ * early.
+ *
+ * Once only, and never against a view the user has moved: re-deepening on
+ * every viewport load would fight a drag, and the containment rule already
+ * owns the moving case.
+ */
+let _deepened = false;
+
+function deepen() {
+  if (_deepened || S.id !== "latest" || !S.axis || !autoSwitchOn()) return;
+  const d = tl.domainKeys();
+  if (!d) return;
+  const years = ORDER.filter(k => /^\d{4}$/.test(k) && S.available[k] !== false);
+  const want = chooseArchive(d, S.axis.unit, {latest: null, years});
+  if (!want || want === "latest" || !ARCHIVES[want]) return;
+  _deepened = true;
+  setStatus("deepen", `Loading the rest of the timeline from ${ARCHIVES[want].label}…`);
+  mount(want, currentCarry()).finally(() => setStatus("deepen", null));
+}
+
 /** The deck.gl layers for the mounted archive. */
 function buildLayers() {
   if (!S.axis || !S.pm) return [];
@@ -851,6 +883,7 @@ function buildLayers() {
       // has nothing left to hide and is dropped.
       if (S.outgoing) { S.outgoing = null; overlay.setProps({layers: buildLayers()}); }
       scheduleHistogram(ts);
+      deepen();
     },
     onClick: showCell,
     // The plan signature carries the archive, the selection and what the
