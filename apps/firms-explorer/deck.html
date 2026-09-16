@@ -1362,9 +1362,28 @@ function considerSwitch(d, dragging, overflow, overflowDays) {
     ? "alltime"
     : chooseArchive(d, S.axis.unit, {latest, years});
   if (want === S.id || !ARCHIVES[want] || S.available[want] === false) return;
+  // Preload, do not switch.
+  //
+  // Three rules were driving one slot and undoing each other: this one wants
+  // the archive that fits the view, activateOwner wants the one that best
+  // covers the selection, and deepen wanted the view's too. The published app
+  // flickered, and when it settled it left the loser as a stale outgoing layer
+  // -- which feeds no cache, so the timeline could not sum it either.
+  //
+  // They are not really three decisions. Which archive *draws* is the
+  // selection's, because the map's colours describe the selection. Which
+  // archives are *loaded* is the view's, because the timeline spans the view.
+  // This rule owns the second: it brings the view's archive in, gives it a
+  // loader layer, and leaves the drawing to activateOwner. Crossing a unit
+  // boundary is the exception -- a monthly axis cannot be drawn from a daily
+  // archive, so that one still switches.
+  const changesUnit = ARCHIVES[want] && want === "alltime" && S.axis.unit === "day";
   const carry = widenCarry(currentCarry(), overflow ? overflowDays : 0);
-  _switchTimer = setTimeout(() => { _switchTimer = null; mount(want, carry); },
-                            SWITCH_SETTLE_MS);
+  _switchTimer = setTimeout(() => {
+    _switchTimer = null;
+    if (changesUnit) mount(want, carry);
+    else preload(want);
+  }, SWITCH_SETTLE_MS);
 }
 
 function autoSwitchOn() {
