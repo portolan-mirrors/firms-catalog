@@ -68,6 +68,31 @@ with tempfile.TemporaryDirectory() as tmp:
               f"item links survive regeneration: {len(before)} before, "
               f"{len(after)} after")
 
+# The year span in the description comes from the items, not the staged files.
+#
+# --data sees only what is staged, and CI stages the rolling window plus the
+# current year. Deriving the span from that published a collection describing
+# twenty-seven years of fire as "covering 2026 to 2026" -- the same mistake the
+# extent and row count had already been fixed for, left in the one place that
+# feeds the prose a reader actually sees. This pins the CI shape directly: one
+# staged year in, the full published span out.
+import importlib.util  # noqa: E402
+
+_spec = importlib.util.spec_from_file_location(
+    "make_collection", ROOT / "tools" / "make_collection.py")
+_mc = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(_mc)
+
+_years = [2026]
+_mc.widen_from_items(ROOT / "catalog" / "detections",
+                     (None, None, None, None, None, None, 0), _years)
+_years = sorted(set(_years))
+_ids = sorted(int(p.parent.name.split("=")[1])
+              for p in (ROOT / "catalog" / "detections").glob("year=*/[0-9]*.json"))
+check(_years == _ids,
+      f"year span widens from the items: got {_years[:1]}..{_years[-1:]} "
+      f"({len(_years)}), items are {_ids[:1]}..{_ids[-1:]} ({len(_ids)})")
+
 if errors:
     print("\n".join(f"error  {e}" for e in errors))
     raise SystemExit(1)

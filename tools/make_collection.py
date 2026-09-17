@@ -65,8 +65,14 @@ COLUMNS = [
 ]
 
 
-def widen_from_items(catalog_dir: Path, live: tuple) -> tuple:
-    """Union the staged extent with every published item's."""
+def widen_from_items(catalog_dir: Path, live: tuple, years: list[int]) -> tuple:
+    """Union the staged extent with every published item's.
+
+    `years` is widened in place for the same reason as the extent: it names the
+    span in the collection description, and deriving it from the staged files
+    alone made a CI run that stages only the current year describe twenty-seven
+    years of fire as "covering 2026 to 2026".
+    """
     minx, miny, maxx, maxy, t0, t1, n = live
     for path in sorted(catalog_dir.glob("year=*/[0-9]*.json")):
         try:
@@ -90,6 +96,8 @@ def widen_from_items(catalog_dir: Path, live: tuple) -> tuple:
             else:
                 t1 = keep(t1, when.replace(tzinfo=None)) if t1 else when.replace(tzinfo=None)
         n += props.get("table:row_count") or 0
+        if (yr := item.get("id", "")).isdigit():
+            years.append(int(yr))
     return minx, miny, maxx, maxy, t0, t1, n
 
 
@@ -189,7 +197,8 @@ def main() -> int:
     # authority here -- each carries its year's real bounds and row count, read
     # from the Parquet footer.
     minx, miny, maxx, maxy, t0, t1, n = widen_from_items(
-        Path(a.out).parent, (minx, miny, maxx, maxy, t0, t1, n))
+        Path(a.out).parent, (minx, miny, maxx, maxy, t0, t1, n), years)
+    years = sorted(set(years))
     now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     iso = lambda d: d.strftime("%Y-%m-%dT%H:%M:%SZ")  # noqa: E731
 
