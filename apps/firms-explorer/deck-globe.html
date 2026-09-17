@@ -1,0 +1,1598 @@
+<!doctype html><html><head><meta charset="utf-8">
+<title>FIRMS explorer · deck.gl · globe</title>
+<link rel="icon" href="favicon.ico" sizes="any">
+<link rel="icon" type="image/png" sizes="32x32" href="favicon-32x32.png">
+<link rel="icon" type="image/png" sizes="16x16" href="favicon-16x16.png">
+<link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png">
+<link rel="manifest" href="site.webmanifest">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<link href="https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.css" rel="stylesheet">
+<script src="https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.js"></script>
+<script src="https://unpkg.com/pmtiles@3.2.0/dist/pmtiles.js"></script>
+<script src="https://unpkg.com/protomaps-themes-base@4.5.0/dist/protomaps-themes-base.js"></script>
+<!-- The MVT loader, before deck.gl. deck's bundle does not expose the loader
+     it uses for tiles, but it does put loaders.gl's `parse` on the `loaders`
+     global, adding to an object that already exists. So the mvt package goes
+     first and defines that object with the loader in it, and deck.gl adds
+     `parse`. Do not load @loaders.gl/core here as well: its export object has
+     getter-only properties, deck.gl's Object.assign onto it throws, and the
+     rest of deck.gl never loads. 4.4.3 is the version deck.gl 9.4.0 bundles. -->
+<script src="https://unpkg.com/@loaders.gl/mvt@4.4.3/dist/dist.min.js"></script>
+<script src="https://unpkg.com/deck.gl@9.4.0/dist.min.js"></script>
+<style>
+ :root{--bg:#0d1117;--panel:#12171f;--inset:#0b0f15;--line:#2b3440;--fg:#e6edf3;
+       --dim:#8b949e;--acc:#f78166;--warn:#d29922}
+ *{box-sizing:border-box}
+ html,body{margin:0;height:100%;background:var(--bg);color:var(--fg);
+   font:12.5px/1.45 ui-sans-serif,-apple-system,"Segoe UI",sans-serif}
+ body{display:flex;flex-direction:column}
+ /* min-height:0 or the flex item refuses to shrink and the dock is pushed off
+    the bottom of the viewport. */
+ .stage{flex:1;min-height:0;position:relative}
+ #map{position:absolute;inset:0}
+ .over{position:absolute;top:10px;left:10px;width:236px;background:var(--panel);
+   border:1px solid var(--line);border-radius:11px;z-index:3;
+   box-shadow:0 10px 34px rgba(0,0,0,.6);max-height:calc(100% - 20px);overflow:auto}
+ .over .hd{padding:11px 13px 9px;border-bottom:1px solid var(--line)}
+ .over h1{margin:0;font-size:13px}
+ .over .sub{color:var(--dim);font-size:10.5px;margin-top:2px}
+ .sec{padding:10px 13px;border-bottom:1px solid var(--line)}
+ .sec:last-child{border-bottom:0}
+ .dock{border-top:1px solid var(--line);background:var(--panel);
+   box-shadow:0 -10px 34px rgba(0,0,0,.6)}
+ .bar{display:flex;gap:10px;align-items:center;padding:9px 12px;flex-wrap:wrap}
+ .grp{font-size:9.5px;text-transform:uppercase;letter-spacing:1px;color:var(--dim)}
+ .seg{display:flex;background:var(--inset);border:1px solid var(--line);
+   border-radius:7px;overflow:hidden}
+ .seg button{background:none;border:0;color:var(--dim);padding:5px 10px;
+   font:inherit;font-size:11px;cursor:pointer}
+ .seg button.on{background:var(--acc);color:var(--panel);font-weight:600}
+ .seg button:hover:not(.on){color:var(--fg)}
+ select{background:var(--inset);color:var(--fg);border:1px solid var(--line);
+   border-radius:6px;padding:4px 7px;font:inherit;font-size:11.5px}
+ .kv{font-size:10.5px;color:var(--dim)}
+ .kv b{color:var(--fg);font-variant-numeric:tabular-nums;font-weight:600}
+ .row{display:flex;justify-content:space-between;font-size:10.5px;color:var(--dim);padding:1px 0}
+ .row b{color:var(--fg);font-variant-numeric:tabular-nums;font-weight:600}
+ .spacer{flex:1}
+ .note{font-size:10px;color:var(--warn);line-height:1.35;padding:0 12px 8px;display:none}
+ .over .note{padding:6px 0 0;display:block}
+ /* In the toolbar, in the gap between the controls and the readouts. It was
+    over the map, which read as an alert for something that is routine. The
+    row already reserves this space, so an appearing message shifts nothing:
+    the flex spacer next to it absorbs the width. */
+ .status{display:none;align-items:center;gap:8px;min-width:0;
+   font-size:10.5px;color:#c3cddb;line-height:1.3}
+ /* Outgrows the spacer 8:1, so a message claims the free middle of the row
+    rather than splitting it, and ellipses only once the row is genuinely
+    full. The spacer still does the pushing when there is no message. */
+ .status.on{display:flex;flex:8 1 0}
+ .status > span{min-width:0;overflow:hidden;text-overflow:ellipsis;
+   white-space:nowrap}
+ /* .hint is the toolbar's link-button class, which is display:none until a
+    fit hint exists. Same name, different element; put this one back. */
+ .status > span.hint{display:block;flex:0 1 auto;color:var(--warn);
+   text-decoration:none;cursor:default}
+ .status .bar{display:block;flex:none;width:52px;height:3px;padding:0;
+   background:rgba(148,163,184,.22);border-radius:2px;overflow:hidden}
+ .status .bar i{display:block;height:100%;background:#e8722c;
+   transition:width .18s linear}
+ .legend{display:flex;flex-direction:column;gap:2px}
+ .lgrow{display:flex;align-items:center;gap:7px;font-size:10.5px;color:var(--dim)}
+ .sw{width:15px;height:10px;border-radius:2px;flex:none}
+ #track{display:block;width:100%;height:104px;outline:none}
+ #track:focus-visible{box-shadow:inset 0 0 0 1px var(--acc)}
+ .hint{background:none;border:0;color:var(--acc);font:inherit;font-size:10.5px;
+   cursor:pointer;padding:0;text-decoration:underline;display:none}
+ .dt{background:var(--inset);color:var(--fg);border:1px solid var(--line);
+   border-radius:4px;font:inherit;font-variant-numeric:tabular-nums;
+   padding:2px 4px;min-width:8.5em}
+ .dt:focus{outline:none;border-color:var(--acc)}
+ /* The native indicator is near-invisible on a dark ground. */
+ .dt::-webkit-calendar-picker-indicator{filter:invert(.75);cursor:pointer}
+ .arrow{color:var(--dim);margin:0 .2em}
+ #pop{position:absolute;right:10px;top:10px;width:212px;background:var(--panel);
+   border:1px solid var(--line);border-radius:11px;padding:10px 12px;z-index:3;display:none}
+ #pop .x{float:right;cursor:pointer;color:var(--dim)}
+  .auto{display:inline-flex;align-items:center;gap:4px;color:var(--dim);
+        font-size:11px;cursor:pointer;user-select:none}
+  .auto input{accent-color:var(--acc);cursor:pointer;margin:0}
+  .tag{font-size:9px;color:var(--panel);background:var(--acc);border-radius:4px;
+       padding:1px 5px;margin-left:6px;vertical-align:middle;font-weight:600}
+</style></head><body>
+
+<div class="stage">
+  <div id="map"></div>
+  <div class="over">
+    <div class="hd"><h1>FIRMS explorer<span class="tag">deck.gl</span></h1>
+      <div class="sub" id="hdsub">loading…</div></div>
+    <div class="sec">
+      <div class="grp" id="lgtitle">Detections in selection</div>
+      <div class="legend" id="lg" style="margin-top:7px"></div>
+      <div class="note" id="lgnote"></div>
+    </div>
+    <div class="sec">
+      <div class="row"><span>zoom</span><b id="z">–</b></div>
+      <div class="row"><span id="nlabel">cells in view</span><b id="ncells">–</b></div>
+      <div class="row"><span>histogram</span><b id="ms">–</b></div>
+    </div>
+  </div>
+  <div id="pop"><span class="x" id="popx">✕</span>
+    <div class="grp">Cell</div><table id="pt" style="width:100%;border-collapse:collapse;
+      font-size:10.5px;margin-top:6px"></table></div>
+</div>
+
+<div class="dock">
+  <div class="bar">
+    <span class="grp">Archive</span>
+    <select id="archive"></select>
+    <label class="auto" title="Swap archives as the timeline zooms in and out">
+      <input type="checkbox" id="autoswitch" checked> auto
+    </label>
+    <button class="hint" id="fits"></button>
+    <span class="grp">Span</span>
+    <div class="seg" id="presets"></div>
+    <div class="seg">
+      <button id="zin" title="Zoom in around the selection">+</button>
+      <button id="zout" title="Zoom out around the selection">−</button>
+      <button id="fit" title="Fit the view to the selection (F)">Fit</button>
+    </div>
+    <span class="status" id="status"></span>
+    <span class="spacer"></span>
+    <span class="kv">selection
+      <input id="selfrom" class="dt" aria-label="Selection start">
+      <span class="arrow">→</span>
+      <input id="selto" class="dt" aria-label="Selection end">
+    </span>
+    <span class="kv">view <b id="view">–</b></span>
+    <span class="kv">buckets <b id="nb">–</b></span>
+  </div>
+  <div class="note" id="note"></div>
+  <canvas id="track" tabindex="0"
+    aria-label="Time axis. Left and right arrows step the selection; hold shift to extend it."></canvas>
+</div>
+
+<script type="module">
+// The deck.gl explorer. Same archives, same timeline, same controls as
+// index.html; the cells and points are drawn by deck.gl over a MapLibre
+// basemap instead of by MapLibre itself. The difference that matters is how a
+// selection change reaches the screen: the MapLibre page rebuilds a paint
+// expression that MapLibre re-evaluates per cell per frame, and had to
+// throttle the map to stay usable. Here the per-cell count is JavaScript that
+// rewrites one colour buffer, and the raw points are filtered on the GPU.
+import {Timeline, makeAxis, formatKey, keyToISO, isoToKey, COUNT_RAMP}
+  from "./timeline.js";
+import {bandAt, chooseArchive, keyDayRange, parseJSONish, pointsMinZoom,
+        pyramid, shippedStops, timelineFromMetadata} from "./archives.js";
+import {axisFor, bestCover, gapsIn, ownerOf, planMounts} from "./mounted.js";
+import {Stats} from "./stats.js";
+import {DECK_TILE_SIZE, TileCache, bucketIndex, countFor, fillFor, lngOverlaps,
+        selectionPlan, tileZoom} from "./deck-cells.js";
+
+maplibregl.addProtocol("pmtiles", new pmtiles.Protocol().tile);
+
+// Where the tiles live. Defaults to the published archives so the hosted app
+// needs no configuration; ?base=… points it at a local build.
+const qs = new URLSearchParams(location.search);
+const BASE = qs.get("base") ||
+  "https://data.source.coop/portolan-mirrors/firms-catalog/detections";
+// Protomaps' OpenStreetMap basemap, on the same origin as the data, so the
+// background comes from Source Cooperative rather than a third party.
+const BASEMAP = "https://data.source.coop/protomaps/openstreetmap/tiles/v3.pmtiles";
+
+const AGG_LAYER = "aggregate", PT_LAYER = "features";
+
+// Fire radiative power, in megawatts. Taken from the preview app's frp ramp so
+// the apps agree about what a hot detection looks like.
+const FRP_RAMP = [
+  [0, "#4a5bd4"], [10, "#39a0a8"], [50, "#c9cf4a"], [200, "#f2b134"],
+  [500, "#e8722c"], [1000, "#d1382a"],
+];
+const el = id => document.getElementById(id);
+
+/**
+ * The projection suffix on every deck layer id.
+ *
+ * deck.gl's GeoJsonLayer does not react to a projection change: flip MapLibre
+ * to globe and the cells keep their Mercator geometry, which projects to
+ * nothing and the map goes empty while the readouts still count the features.
+ * That is visgl/deck.gl#9466, open, confirmed by the maintainer ("BitmapLayer/
+ * GeoJsonLayer do not react to projection change as of 9.1") and reproduced
+ * here on 9.4.0.
+ *
+ * Their suggested workaround, and the only one that worked: make the layer id
+ * depend on the projection, so a flip hands deck.gl an id it has never seen
+ * and it builds the layer again from scratch. The cost is that the tiles
+ * reload on every toggle.
+ *
+ * Delete this, and the projectiontransition handler at the bottom, once #9466
+ * lands -- the ids go back to being about the archive and nothing else.
+ */
+const PROJ_SFX = () =>
+  (map.getProjection && map.getProjection() || {}).type === "globe" ? "-globe" : "";
+
+// The two archives with a fixed name. The per-year ones are filled in by
+// listYears(), which derives them from the clock rather than the catalog.
+const ARCHIVES = {
+  alltime: {label: "All time · monthly", url: `${BASE}/alltime.pmtiles`,
+            presets: [["1y", 12], ["5y", 60], ["all", null]]},
+  latest:  {label: "Last 7 days · daily", url: `${BASE}/fire-latest.pmtiles`,
+            presets: [["all", null]]},
+};
+// Display order, kept beside ARCHIVES rather than read off it. A year id like
+// "2020" is an array-index-like key, and JavaScript enumerates those first and
+// in ascending numeric order however they were inserted, so Object.keys()
+// would put 2000 above the all-time archive.
+const ORDER = ["alltime", "latest"];
+const UNIT_ADVERB = {day: "daily", month: "monthly"};
+
+// Point the app at an archive that is not in the catalog yet:
+//
+//   ?add=2020|./fire-2020.pmtiles          (repeatable)
+//
+// See index.html for why this needs the range-capable serve.py.
+const OVERRIDDEN = new Set();
+
+// Point the app at a whole directory of locally built year archives:
+//
+//   ?localyears=2000-2026&localbase=./years
+const _ly = qs.get("localyears");
+if (_ly) {
+  const base = (qs.get("localbase") || ".").replace(/\/$/, "");
+  const [lo, hi] = _ly.includes("-") ? _ly.split("-").map(Number)
+                                     : [Number(_ly), Number(_ly)];
+  for (let y = hi; y >= lo; y--) {
+    const id = String(y);
+    ARCHIVES[id] = {label: `${y} · daily`, url: `${base}/fire-${y}.pmtiles`,
+                    presets: [["7d", 7], ["30d", 30], ["90d", 90], ["all", null]]};
+    OVERRIDDEN.add(id);
+    if (!ORDER.includes(id)) ORDER.push(id);
+  }
+}
+for (const spec of qs.getAll("add")) {
+  const i = spec.indexOf("|");
+  if (i < 1) continue;
+  const id = spec.slice(0, i), url = spec.slice(i + 1);
+  ARCHIVES[id] = ARCHIVES[id]
+    ? {...ARCHIVES[id], url}          // known archive: point it elsewhere
+    : {label: `${id} · daily (local)`, url,
+       presets: [["7d", 7], ["30d", 30], ["90d", 90], ["all", null]]};
+  OVERRIDDEN.add(id);
+  if (!ORDER.includes(id)) ORDER.push(id);
+}
+
+let S = {
+  id: null, axis: null, meta: null, columns: new Set(), declared: true,
+  bands: [], breaks: null, ptsMinZoom: Infinity, available: {},
+  sel: {from: 0, to: 0}, lastLevel: null,
+  // deck.gl specifics: the open archive, its zoom range, and the tile cache
+  // that stands in for querySourceFeatures.
+  pm: null, fetch: null, maxZoom: 9, tiles: null, hasCum: null,
+  // The archive being replaced, kept drawing until its successor can cover
+  // the screen. Null except during a switch.
+  outgoing: null,
+  // How many buckets the mounted archive itself declares, which is not
+  // axis.declaredBuckets once the axis is widened past it. firms:breaks was
+  // computed over this archive's whole record, so it is this count a
+  // selection is a fraction of.
+  archiveBuckets: 0,
+  // What is actually loaded, keyed by archive id, as {unit, min, max}. The
+  // drawn axis can be wider than this -- that is the point -- so the two are
+  // kept apart: `axis` is what the timeline shows, `mounted` is what has the
+  // numbers behind it.
+  mounted: new Map(),
+  bandBuckets: new Map(),
+};
+
+// -------------------------------------------------------------- discovery
+
+// FIRMS' MODIS record opens in November 2000; there is no earlier year to
+// offer. The upper bound comes from the clock rather than a literal, so the
+// list extends itself on New Year with no edit here.
+const FIRST_YEAR = 2000;
+
+/**
+ * The per-year archives, derived rather than discovered.
+ *
+ * This used to read collection.json, then every item, then probe every
+ * pmtiles with a range request: 55 requests before the map could draw, to
+ * learn a list that is `2000..thisYear` and URLs that are one printf. The
+ * catalog is the authority on what exists, but the app does not need to ask
+ * it at runtime. The layout is a contract, and tests/test_item_assets.py
+ * asserts it: every item sits in year=<Y>/ and names ./fire-<Y>.pmtiles. A
+ * rename there fails the tests rather than this map.
+ *
+ * The cost of being wrong is small and self-correcting. A year the catalog
+ * does not have yet (fire-2027, in the hours after New Year before the
+ * rebuild lands) fails its first read, and mount() marks it unavailable and
+ * drops it from the picker. That is one failed request, once, for whoever
+ * hits that window -- against 55 on every load for everyone else.
+ */
+function listYears() {
+  for (let y = new Date().getUTCFullYear(); y >= FIRST_YEAR; y--) {
+    const id = String(y);
+    if (OVERRIDDEN.has(id)) continue;          // an ?add= override wins
+    ARCHIVES[id] = {
+      id, url: `${BASE}/year=${id}/fire-${id}.pmtiles`,
+      label: `${id} · daily`,
+      presets: [["7d", 7], ["30d", 30], ["90d", 90], ["all", null]],
+    };
+    ORDER.push(id);                            // newest first, as the loop runs
+  }
+}
+
+// ------------------------------------------------------------------- the map
+
+const map = new maplibregl.Map({
+  container: "map", hash: true,
+  style: {
+    version: 8,
+    glyphs: "https://protomaps.github.io/basemaps-assets/fonts/{fontstack}/{range}.pbf",
+    sprite: "https://protomaps.github.io/basemaps-assets/sprites/v4/dark",
+    sources: {protomaps: {type: "vector", url: "pmtiles://" + BASEMAP,
+      attribution: '<a href="https://protomaps.com">Protomaps</a> &copy; ' +
+                   '<a href="https://openstreetmap.org">OpenStreetMap</a>'}},
+    // layers() wants the theme OBJECT from namedTheme(), not the flavour name.
+    layers: protomaps_themes_base.layers(
+      "protomaps", protomaps_themes_base.namedTheme("dark"), {lang: "en"}),
+  },
+  center: [20, 10], zoom: 2, minZoom: 0, renderWorldCopies: true,
+});
+window._map = map;
+
+// Overlaid rather than interleaved, so the cells draw over the labels the way
+// the MapLibre page's fill layer does. Interleaving is a one-flag change once
+// the label-over-cell look is wanted.
+const overlay = new deck.MapboxOverlay({
+  interleaved: false, layers: [],
+  onClick: info => { if (!info.object) el("pop").style.display = "none"; },
+});
+map.addControl(overlay);
+
+/**
+ * Hand deck.gl's tile requests to the pmtiles reader.
+ *
+ * deck.gl has no PMTiles source. Its MVTLayer builds a URL from a template
+ * and passes it to the layer's `fetch` prop with the load options it wants
+ * the parser to use, so the template is just "{z}/{x}/{y}", the fetch pulls
+ * the tile from the archive, and the bytes go through the same MVT parser
+ * with the same options, so the layer sees exactly what it expects.
+ */
+function pmtilesFetch(pm) {
+  // Parsed in a worker, as deck.gl's own tile path does. A z6 aggregate tile
+  // takes 37 ms to parse and a band edge lands a dozen at once, which on the
+  // main thread is a visible hitch in the middle of a zoom.
+  const MVT = loaders.MVTWorkerLoader;
+  return async (url, ctx) => {
+    const [z, x, y] = url.split("/").map(Number);
+    const r = await pm.getZxy(z, x, y, ctx.signal);
+    if (!r) return null;    // no tile here: an empty tile, not an error
+    const lo = ctx.loadOptions || {};
+    return loaders.parse(r.data, MVT, {...lo, mvt: {...MVT.options.mvt, ...lo.mvt}});
+  };
+}
+
+/** Read an archive's own description of itself, or nothing if it will not load. */
+async function readArchive(url) {
+  const pm = new pmtiles.PMTiles(url);
+  const [md, header] = await Promise.all([pm.getMetadata(), pm.getHeader()]);
+  const py = pyramid(md);
+  const tl = timelineFromMetadata(md);
+  return {
+    pm, maxZoom: header.maxZoom,
+    md, bands: py.bands, breaks: parseJSONish(md["firms:breaks"]),
+    ptsMinZoom: pointsMinZoom(py.bands),
+    meta: tl.meta, declared: tl.declared, columns: new Set(tl.columns),
+  };
+}
+
+/**
+ * Mount an archive, optionally landing on a given window of real time.
+ *
+ * `carry` is {view:[d0,d1], sel:[d0,d1]} in YYYYMMDD: dates survive a change
+ * of bucket unit where indices do not.
+ */
+/**
+ * Archives already read, by id.
+ *
+ * Reading one is a header fetch, a root directory and the metadata -- three
+ * round trips against this bucket, so two to six seconds. Coming back to an
+ * archive is common now that the selection decides which one draws: five days
+ * selected uses the rolling window, a wider drag uses the year, and narrowing
+ * again comes straight back. Re-reading on every hop would make the thing the
+ * user does most the thing that costs most.
+ *
+ * The PMTiles handle is what is kept, not the tiles: those live in deck's own
+ * tileset and in the per-archive TileCache below.
+ */
+const _reads = new Map();
+
+/**
+ * Tile caches, by archive id, kept alongside the reads.
+ *
+ * The histogram sums whatever the viewport holds, and after a handover the
+ * outgoing archive still holds tiles the incoming one has not fetched yet.
+ * Throwing its cache away made the bar chart drop to what had arrived so far
+ * and climb back, which reads as the data changing when only the source did.
+ */
+const _caches = new Map();
+
+async function mount(id, carry) {
+  const arc = ARCHIVES[id];
+  if (!arc) return;
+  el("archive").value = id;
+  el("hdsub").textContent = "reading " + arc.label + "…";
+
+  // Read the new archive BEFORE tearing down the old one, so a switch that is
+  // triggered by zooming does not blank the map for a network round trip.
+  let read = _reads.get(id);
+  try {
+    if (!read) {
+      read = await readArchive(arc.url);
+      _reads.set(id, read);
+    }
+  } catch (e) {
+    S.available[id] = false;
+    renderArchiveControl();
+    console.warn("archive unavailable: " + arc.url, e);
+    el("hdsub").textContent = arc.label + " · archive unavailable";
+    el("ncells").textContent = "0";
+    el("ms").textContent = "–";
+    return;
+  }
+  // A slim tileset carries no monthly columns and so declares no axis; the
+  // sidecar that took over the time dimension declares it instead.
+  if (!read.meta && id === "alltime") {
+    const st = await openStats().catch(() => null);
+    if (st && st.timeline) {
+      read.meta = st.timeline;
+      read.declared = true;
+    }
+  }
+  if (!read.meta) {
+    el("hdsub").textContent = arc.label + " · no time axis declared";
+    console.warn("archive declares no firms:timeline and carries no bucket " +
+                 "columns; there is no axis to draw", arc.url);
+    return;
+  }
+  // Capture what is on screen before replacing it, so buildLayers can keep
+  // drawing it while the new archive loads. Only on a real switch: remounting
+  // the same archive has nothing to hand over from, and holding a stale copy
+  // of yourself underneath is how two resolutions end up composited.
+  if (S.id && S.id !== id && S.pm) {
+    S.outgoing = {id: S.id, fetch: S.fetch, maxZoom: S.maxZoom,
+                  render: {renderSubLayers: renderTile,
+                           updateTriggers: {getFillColor: _plans.sig,
+                                            getLineColor: _plans.sig,
+                                            getFilterValue: S.id}}};
+  }
+  S.id = id;
+  S.available[id] = true;
+  S.mounted.set(id, {unit: read.meta.unit, min: read.meta.min, max: read.meta.max});
+  Object.assign(S, read);
+  // One axis, shared. The timeline emits selection indices against whatever
+  // axis it was given, and everything downstream resolves those indices
+  // through S.axis -- so if the two differ the lookups land on the wrong day,
+  // or off the end entirely, and the map goes blank while the bar chart looks
+  // fine. Widening the timeline without widening this is exactly that bug.
+  const extent = widenedExtent(read.meta);
+  S.axis = makeAxis(extent);
+  S.archiveBuckets = makeAxis(read.meta).count;
+  if (!_caches.has(id)) _caches.set(id, new TileCache(S.axis));
+  S.tiles = _caches.get(id);
+  S.fetch = splitFetch(read.pm);
+  S.hasCum = null;
+  S.bandBuckets = new Map();
+  S.lastLevel = null;
+
+  // Mount the axis with no values: the counts are viewport-dependent and are
+  // not known until tiles have loaded. The bars fill in as tiles arrive.
+  //
+  // The axis is widened past this archive when a neighbour is known to exist.
+  // Landing on the rolling window would otherwise give an eight-day timeline,
+  // and the hundred-day opening view would clamp to it -- the window is the
+  // cheapest thing to draw, not the whole story. The span it does not cover is
+  // reported as a gap so it draws hatched rather than as a row of empty bars.
+  tl.metricLabel = "detections";
+  tl.setSource(extent, {});
+  tl.setGaps(gapsFor(extent));
+  // Before applyCarry, not after: applyCarry emits, and the emit writes the
+  // selection into the date inputs, which have to be the right type first.
+  syncInputs();
+  if (carry) applyCarry(carry);
+
+  if (id === "alltime") openStats();
+
+  el("nb").textContent =
+    `${S.axis.count} ${S.axis.unit}${S.axis.count === 1 ? "" : "s"}`;
+  el("z").textContent = map.getZoom().toFixed(1);
+  el("presets").innerHTML = (arc.presets || [["all", null]])
+    .map(([lbl, n]) => `<button data-n="${n == null ? "" : n}">${lbl}</button>`)
+    .join("");
+  renderArchiveControl();
+  showNotes(arc, read);
+  applySelection();
+  scheduleHistogram();
+}
+
+/**
+ * The axis extent to draw, which is not always the mounted archive's own.
+ *
+ * `spans` on an archive says what a neighbour covers without it being loaded:
+ * the catalog knows the current year runs to today whether or not its tiles
+ * are here. Widening to that is what lets the opening view be a hundred days
+ * when the archive in hand holds eight, and what lets a drag run off the end
+ * of the rolling window into territory that is about to arrive.
+ */
+function widenedExtent(meta) {
+  const others = neighbourExtents(meta.unit);
+  if (!others.length) return meta;
+  const wide = axisFor([{unit: meta.unit, min: meta.min, max: meta.max},
+                        ...others]);
+  return wide ? {...meta, min: wide.min, max: wide.max, buckets: wide.buckets}
+              : meta;
+}
+
+/** Which bucket ranges of the drawn axis nothing has actually loaded. */
+function gapsFor(extent) {
+  const held = [...S.mounted.values()]
+    .filter(m => m.unit === extent.unit)
+    .map(m => ({unit: m.unit, min: m.min, max: m.max}));
+  return gapsIn(held, {unit: extent.unit, min: extent.min, max: extent.max,
+                       buckets: extent.buckets});
+}
+
+/**
+ * Extents of archives that exist but are not mounted, at this unit.
+ *
+ * Taken from the catalog rather than by reading the archives: the point is to
+ * widen the axis before paying for them. A year archive covers its calendar
+ * year, except the current one, which stops at the rolling window's last day.
+ */
+function neighbourExtents(unit) {
+  if (unit !== "day") return [];
+  const out = [];
+  const w = latestWindow();
+  for (const id of Object.keys(ARCHIVES)) {
+    if (!/^\d{4}$/.test(id) || S.available[id] === false) continue;
+    const y = Number(id);
+    const last = w && String(w.max).slice(0, 4) === id ? String(w.max) : `${y}1231`;
+    out.push({unit: "day", min: `${y}0101`, max: last});
+  }
+  return out;
+}
+
+function showNotes(arc, read) {
+  el("hdsub").textContent =
+    `${formatKey(S.axis.min, S.axis.unit)} → ${formatKey(S.axis.max, S.axis.unit)} · ` +
+    `${UNIT_ADVERB[S.axis.unit] || S.axis.unit} buckets`;
+  const msgs = [];
+  if (!read.declared)
+    msgs.push(`${arc.label} declares no firms:timeline; the axis was ` +
+              `reconstructed from the ${read.columns.size} bucket columns the ` +
+              `aggregate layer lists.`);
+  if (S.axis.declaredBuckets !== S.axis.count)
+    msgs.push(`firms:timeline declares ${S.axis.declaredBuckets} buckets but ` +
+              `${S.axis.min}–${S.axis.max} spans ${S.axis.count}. ` +
+              `The gap is drawn empty.`);
+  const note = el("note");
+  note.style.display = msgs.length ? "block" : "none";
+  note.textContent = msgs.join(" ");
+}
+
+// ------------------------------------------------------------------- bands
+
+/** The band deck.gl is drawing: deck requests round(zoom), not floor. */
+function currentBand() { return bandAt(S.bands, tileZoom(map.getZoom())); }
+
+/** A band's tile zoom range, for asking the cache what it holds. */
+function zoomRange(band) {
+  return band ? [band.minzoom, band.maxzoom == null ? 30 : band.maxzoom] : [0, -1];
+}
+
+const inPoints = () => tileZoom(map.getZoom()) >= (S.ptsMinZoom || Infinity);
+
+/**
+ * Whether a band's tiles carry bucket columns. Decided per BAND, not per
+ * archive: the all-time archive is stripped of monthly columns at its coarse
+ * band, where the sidecar covers it, and keeps them at the fine band. A band
+ * is assumed slim until a tile from it proves otherwise.
+ */
+function bandHasBuckets(band) {
+  if (!band || !S.tiles) return false;
+  const known = S.bandBuckets.get(band.level);
+  if (known !== undefined) return known;
+  const p = S.tiles.firstProps(...zoomRange(band));
+  if (!p) return false;
+  const has = Object.keys(p).some(k => /^count_\d{6}$/.test(k));
+  S.bandBuckets.set(band.level, has);
+  return has;
+}
+
+/** Does this archive carry running totals? Detected from the first tile. */
+function hasCumulative() {
+  if (S.hasCum !== null) return S.hasCum;
+  const p = S.tiles && S.tiles.firstProps(0, 30);
+  if (!p) return false;
+  S.hasCum = Object.keys(p).some(k => /^count_c\d+$/.test(k));
+  return S.hasCum;
+}
+
+/** True when the sidecar, not the tiles, supplies this band's numbers. */
+function statsDriven(band = currentBand()) {
+  if (!(S.id === "alltime" && STATS && STATS.ready)) return false;
+  return !bandHasBuckets(band);
+}
+
+// ------------------------------------------------- colouring by the selection
+
+/**
+ * The colour ladder for a band, scaled by the share of the record selected.
+ *
+ * The shipped breaks describe a cell's total over the whole archive. One
+ * month of 311 coloured by them puts every cell in the bottom class, so the
+ * thresholds are scaled by the selection's share of the axis. At full span
+ * the scale is 1 and the shipped breaks are used exactly as published.
+ */
+function stopsFor(band, nsel) {
+  // Against the archive's own record, not the drawn axis. Widening the axis
+  // to 9,755 days while the breaks describe 258 divided every threshold by
+  // thirty-eight and put almost every cell in the top class -- the map went
+  // uniformly red and stayed that way.
+  const scale = nsel / Math.max(1, S.archiveBuckets || S.axis.declaredBuckets);
+  const st = band && S.breaks
+    ? shippedStops(S.breaks, band.level, "count", COUNT_RAMP, scale) : null;
+  return {stops: st || COUNT_RAMP, scale};
+}
+
+// The plans for the current selection: one over tile columns, one over the
+// sidecar. Built once per selection change, read once per cell.
+let _plans = {tiles: null, stats: null, sig: ""};
+function plans() {
+  // Everything the per-cell count can depend on, including what the tiles
+  // have revealed so far: a band found to carry columns switches its cells
+  // from the sidecar plan to the tile plan, and that has to repaint too.
+  const sig = `${S.id}:${S.sel.from}:${S.sel.to}:${S.hasCum}:` +
+    `${STATS ? STATS.axis.length : 0}:${[...S.bandBuckets].join()}`;
+  if (_plans.sig === sig) return _plans;
+  const tiles = selectionPlan({axis: S.axis, sel: S.sel, columns: S.columns,
+                               cumulative: hasCumulative()});
+  let stats = null;
+  if (S.id === "alltime" && STATS && STATS.ready) {
+    const k = tl.selectionKeys();
+    const sums = k
+      ? STATS.selectedSums(k.from, k.to, -180, -90, 180, 90, lngOverlaps, [])
+      : [];
+    stats = selectionPlan({axis: S.axis, sel: S.sel, columns: S.columns,
+                           statsSums: sums});
+  }
+  _plans = {tiles, stats, sig};
+  return _plans;
+}
+
+const OUTLINE = [0, 0, 0, 72], NO_LINE = [0, 0, 0, 0];
+
+/**
+ * Cell outline width, in the CSS pixels deck.gl measures line widths in.
+ *
+ * MapLibre's fill-outline-color is a one-DEVICE-pixel hairline, so on a 2x
+ * display deck.gl's `getLineWidth: 1` drew the same edge twice as thick and
+ * the cells read as a heavy grid rather than a tint. Dividing by the device
+ * ratio puts one device pixel back on the screen whatever the display, and
+ * reading it per layer build rather than once at load keeps it right when a
+ * window moves between a laptop screen and an external monitor.
+ *
+ * Floored at a third of a CSS pixel: below that the line falls far enough
+ * inside one device pixel that antialiasing fades it to nothing in places,
+ * which looks like dropped edges rather than a thin line.
+ */
+function hairline() {
+  return Math.max(1 / (window.devicePixelRatio || 1), 1 / 3);
+}
+const POINT_FILTER = new deck.DataFilterExtension({filterSize: 1});
+const _frp = new Map();
+function frpColor(v) {
+  let c = _frp.get(v == null ? 0 : v);
+  if (c) return c;
+  const hex = FRP_RAMP.reduce((acc, [t, col]) => (v || 0) >= t ? col : acc, FRP_RAMP[0][1]);
+  c = [parseInt(hex.slice(1, 3), 16), parseInt(hex.slice(3, 5), 16),
+       parseInt(hex.slice(5, 7), 16), 255];
+  _frp.set(v == null ? 0 : v, c);
+  return c;
+}
+
+/**
+ * Fetch a tile and split it by source-layer, once.
+ *
+ * The archive puts cells and points at different zooms of the same tileset,
+ * so one MVTLayer reads every tile and each tile renders as up to two
+ * sublayers. The split happens here rather than in renderSubLayers so the
+ * arrays deck.gl sees as `data` keep their identity across selection changes
+ * and only the colour attribute is rebuilt.
+ */
+function splitFetch(pm) {
+  const fetchTile = pmtilesFetch(pm);
+  return async (url, ctx) => {
+    const feats = await fetchTile(url, ctx);
+    if (!feats) return null;
+    const cells = [], points = [];
+    for (const f of feats)
+      (f.properties.layerName === PT_LAYER ? points : cells).push(f);
+    return {cells, points};
+  };
+}
+
+/** A tile's sublayers: cells coloured by the selection, points filtered by it. */
+function renderTile(p) {
+  if (!p.data) return null;               // an empty tile
+  const z = p.tile.index.z;
+  const band = bandAt(S.bands, z);
+  const plan = statsDriven(band) ? _plans.stats : _plans.tiles;
+  const {stops} = stopsFor(band, plan.nsel);
+  const floor = stops[0][0];
+  const out = [];
+  if (p.data.cells.length) out.push(new deck.GeoJsonLayer({
+    ...p, id: p.id + "-cells", data: p.data.cells,
+    filled: true, stroked: true, opacity: .74,
+    lineWidthUnits: "pixels", getLineWidth: hairline(),
+    getFillColor: f => fillFor(countFor(plan, f.properties), stops),
+    getLineColor: f => countFor(plan, f.properties) >= floor ? OUTLINE : NO_LINE,
+  }));
+  if (p.data.points.length) out.push(new deck.GeoJsonLayer({
+    ...p, id: p.id + "-points", data: p.data.points,
+    pointType: "circle", opacity: .85, stroked: false,
+    // A radius in metres grows with zoom the way the MapLibre page's
+    // interpolate on zoom did; the pixel clamps are its end stops.
+    pointRadiusUnits: "meters", getPointRadius: 57,
+    pointRadiusMinPixels: 1.6, pointRadiusMaxPixels: 5.5,
+    getFillColor: f => frpColor(f.properties.frp),
+    // The selection filters the points on the GPU: a uniform update per
+    // change, no relayout, no per-point JavaScript.
+    extensions: [...(p.extensions || []), POINT_FILTER],
+    getFilterValue: f => bucketIndex(f.properties, S.axis),
+    filterRange: [S.sel.from, S.sel.to],
+  }));
+  return out;
+}
+
+/**
+ * Transient status: what the map is doing that the map cannot show.
+ *
+ * Three things were invisible. Tiles at the points band take seconds to
+ * arrive and nothing moves meanwhile, so a visitor who does not already know
+ * they are coming zooms away from an empty map. A selection reaching into
+ * time no archive has loaded yet reports a total that is honest for what is
+ * loaded and wrong for what was asked. And zooming towards points while on a
+ * monthly archive can never show them, which looks like a broken map rather
+ * than a wrong altitude.
+ *
+ * Keyed rather than a queue: each condition owns its line and clears it when
+ * it resolves, so a message cannot outlive the thing it describes. That is
+ * the failure mode of a toast -- it says "loading" for three seconds whether
+ * or not loading took three seconds.
+ */
+const _status = new Map();
+
+function setStatus(key, html, pct) {
+  if (html == null) _status.delete(key);
+  else _status.set(key, {html, pct});
+  const el_ = el("status");
+  if (!_status.size) { el_.className = "status"; el_.innerHTML = ""; return; }
+  el_.className = "status on";
+  el_.innerHTML = [..._status.values()].map(m =>
+    `<span>${m.html}</span>` + (m.pct == null ? "" :
+      `<div class="bar"><i style="width:${Math.round(m.pct * 100)}%"></i></div>`)
+  ).join("");
+}
+
+/**
+ * Tiles in flight, as a fraction.
+ *
+ * deck.gl reports the tileset's own loading state; the count of tiles still
+ * pending against the number requested is the closest thing to progress that
+ * does not require knowing their sizes.
+ */
+function reportTileLoad(total, loaded) {
+  if (total <= 0 || loaded >= total) return setStatus("tiles", null);
+  const band = bandAt(S.bands, tileZoom(map.getZoom()));
+  const what = band && band.layer === PT_LAYER ? "detections" : "cells";
+  setStatus("tiles", `Loading ${what}… ${loaded} of ${total} tiles`,
+            loaded / total);
+}
+
+/**
+ * Whether the selection reaches into time nothing has loaded.
+ *
+ * The total shown is a true sum over what is loaded, which is not the sum the
+ * user asked for. Saying so is cheaper than either refusing the selection or
+ * quietly under-reporting it.
+ */
+function reportPartialSelection() {
+  if (!S.axis) return setStatus("partial", null);
+  const gaps = gapsFor(S.axis);
+  const hit = gaps.reduce((n, [a, b]) =>
+    n + Math.max(0, Math.min(b, S.sel.to) - Math.max(a, S.sel.from) + 1), 0);
+  if (!hit) return setStatus("partial", null);
+  const span = S.sel.to - S.sel.from + 1;
+  setStatus("partial",
+    `<span class="hint">Counting ${span - hit} of ${span} selected ` +
+    `${S.axis.unit}s.</span> The rest is still loading, so the totals and ` +
+    `colours will rise as it arrives.`);
+}
+
+/**
+ * Zooming towards detections on an archive that has none.
+ *
+ * The monthly archive stops at cells by design -- it covers twenty-seven
+ * years and individual detections would be billions of rows. The map simply
+ * stops refining, which reads as broken. It is not: it is the wrong archive
+ * for the question, and narrowing the time window switches to one that has
+ * them.
+ */
+function reportNoPoints() {
+  const z = tileZoom(map.getZoom());
+  const band = bandAt(S.bands, z);
+  const hasPoints = (S.bands || []).some(b => b.layer === PT_LAYER);
+  if (hasPoints || !S.axis || S.axis.unit !== "month" || z < (S.maxZoom || 9)) {
+    return setStatus("nopoints", null);
+  }
+  setStatus("nopoints",
+    `<span class="hint">This archive stops at cells.</span> Narrow the ` +
+    `time window to a year or less and individual detections appear.`);
+}
+
+/**
+ * Once the quick archive is on screen, fetch the one behind it.
+ *
+ * Landing on the rolling window is what makes first paint fast -- eight days
+ * of tiles against a year's -- but it leaves ninety-odd days of the opening
+ * view hatched, and they stay hatched until something asks for them. The
+ * containment rule only asks when the view moves, so a visitor who does not
+ * touch anything is left looking at a mostly empty chart.
+ *
+ * So the view's own span is asked for as soon as the window has painted. The
+ * handover keeps the window drawing underneath while the year loads, so this
+ * costs nothing visible; it is the same switch the rule would make, taken
+ * early.
+ *
+ * Once only, and never against a view the user has moved: re-deepening on
+ * every viewport load would fight a drag, and the containment rule already
+ * owns the moving case.
+ */
+let _deepened = false;
+
+function deepen() {
+  if (_deepened || !S.axis || !autoSwitchOn()) return;
+  const d = tl.domainKeys();
+  if (!d) return;
+  const years = ORDER.filter(k => /^\d{4}$/.test(k) && S.available[k] !== false);
+  const want = chooseArchive(d, S.axis.unit, {latest: null, years});
+  if (!want || want === S.id || S.mounted.has(want) || !ARCHIVES[want]) return;
+  _deepened = true;
+  preload(want);
+}
+
+/**
+ * Bring an archive in without giving it the map.
+ *
+ * This is what deepen() should have done from the start. It used to switch,
+ * which put it in a tug of war with activateOwner -- one moved to the year so
+ * the timeline could fill, the other moved back because the five-day selection
+ * is better served by the window, and the published app flickered between
+ * them.
+ *
+ * They were never really in conflict; they answer different questions. Which
+ * archive *draws* is the selection's to decide, because the map's colours
+ * describe the selection. Which archives are *loaded* is the view's, because
+ * the timeline spans the view. Preloading separates the two: the year is read,
+ * cached and given a loader layer that fetches its tiles and paints nothing,
+ * so the bar chart fills while the window keeps the map.
+ */
+async function preload(id) {
+  const arc = ARCHIVES[id];
+  if (!arc || S.mounted.has(id)) return;
+  setStatus("preload", `Loading the rest of the timeline from ${arc.label}…`);
+  try {
+    let read = _reads.get(id);
+    if (!read) { read = await readArchive(arc.url); _reads.set(id, read); }
+    if (!read.meta) return;
+    if (!_caches.has(id)) _caches.set(id, new TileCache(S.axis));
+    S.mounted.set(id, {unit: read.meta.unit, min: read.meta.min, max: read.meta.max});
+    S.available[id] = true;
+    // The hatching is what the axis knows minus what is loaded, so it shrinks
+    // the moment this lands -- before a single tile of it has arrived.
+    tl.setGaps(gapsFor(S.axis));
+    overlay.setProps({layers: buildLayers()});
+  } catch (e) {
+    S.available[id] = false;
+    console.warn("preload failed: " + arc.url, e);
+  } finally {
+    setStatus("preload", null);
+  }
+}
+
+/**
+ * Let the selection decide which archive draws.
+ *
+ * The rolling window and the year archive overlap on the last few days and
+ * disagree there: the window is rebuilt hourly and the year daily, so today is
+ * complete in the window and partial in the year. Once the year had loaded it
+ * served everything, and the default five-day selection quietly under-reported
+ * the most recent day -- a real number, just the wrong one, with nothing on
+ * screen to say so.
+ *
+ * So whichever mounted archive owns the selection's newest bucket draws it.
+ * Five days selected comes from the window and is complete; drag wider and the
+ * year takes over, because the window does not reach that far. The archives are
+ * cached, so hopping between them is a relabel rather than a reload, and the
+ * handover keeps the old one painting until the new one can.
+ *
+ * Coverage decides, then freshness. Asking only about the selection's newest
+ * bucket looked equivalent and was not: the window owns today, so a sixty-day
+ * selection ending today picked the eight-day archive and under-reported
+ * fifty-two of them. Where both cover the selection whole -- the default five
+ * days -- the fresher wins, which is what keeps today complete.
+ */
+function activateOwner() {
+  if (!S.axis || !S.sel || !autoSwitchOn()) return;
+  const held = [...S.mounted.entries()]
+    .filter(([, m]) => m.unit === S.axis.unit)
+    .map(([id, m]) => ({...m, id, rebuilt: id === "latest" ? 2 : 1}));
+  if (held.length < 2) return;
+  const owner = bestCover(held, S.axis.keyAt(S.sel.from), S.axis.keyAt(S.sel.to));
+  if (!owner || owner.id === S.id) return;
+  mount(owner.id, currentCarry());
+}
+
+/** The deck.gl layers for the mounted archive. */
+function buildLayers() {
+  if (!S.axis || !S.pm) return [];
+  plans();
+  const layers = [];
+  // The outgoing archive keeps drawing underneath until the incoming one has
+  // a viewport's worth of tiles. Swapping the layer id alone makes deck drop
+  // the old tiles the instant the new layer appears, and the map is empty for
+  // however long the new archive takes -- seconds, against this bucket. The
+  // two cover the same ground at the same moment, so the handover is
+  // invisible rather than a blink through nothing.
+  if (S.outgoing) {
+    layers.push(new deck.MVTLayer({
+      id: "fire-" + S.outgoing.id + PROJ_SFX(),
+      data: "{z}/{x}/{y}",
+      fetch: S.outgoing.fetch,
+      binary: false,
+      minZoom: 0, maxZoom: S.outgoing.maxZoom,
+      tileSize: DECK_TILE_SIZE,
+      refinementStrategy: "no-overlap",
+      maxRequests: 4,          // it is on its way out; do not starve the new one
+      pickable: false,
+      // Frozen: it paints whatever it painted when the switch began. Recolouring
+      // it would need its own axis and plans, which are exactly what is being
+      // replaced.
+      ...S.outgoing.render,
+    }));
+  }
+  // Archives that are mounted but not drawing still load, invisibly, so the
+  // timeline can sum them.
+  //
+  // `visible: false` would skip loading altogether, which is the thing we
+  // need. A layer whose renderSubLayers returns null still fetches its tiles
+  // and still fires onTileLoad -- it simply paints nothing. So the map stays
+  // single-source and cannot composite two partial sums of the same cell,
+  // while the bar chart gets every archive's numbers.
+  //
+  // This is deck's own tile selection doing the work: which tiles this
+  // viewport needs, at which zoom, and when to evict them. Fetching them by
+  // hand would mean reimplementing exactly that.
+  for (const [id, m] of S.mounted) {
+    if (id === S.id || (S.outgoing && id === S.outgoing.id)) continue;
+    const read = _reads.get(id);
+    const cache = _caches.get(id);
+    if (!read || !cache || m.unit !== S.axis.unit) continue;
+    layers.push(new deck.MVTLayer({
+      id: "load-" + id + PROJ_SFX(),
+      data: "{z}/{x}/{y}",
+      fetch: splitFetch(read.pm),
+      binary: false,
+      minZoom: 0, maxZoom: read.maxZoom ?? S.maxZoom,
+      tileSize: DECK_TILE_SIZE,
+      refinementStrategy: "no-overlap",
+      maxRequests: 6,
+      pickable: false,
+      onTileLoad: t => addToCache(cache, t),
+      onTileUnload: t => cache.remove(t),
+      onViewportLoad: () => scheduleHistogram(),
+      // Nothing drawn: the point is the fetch and the cache, not pixels.
+      renderSubLayers: () => null,
+    }));
+  }
+
+  layers.push(new deck.MVTLayer({
+    id: "fire-" + S.id + PROJ_SFX(),
+    data: "{z}/{x}/{y}",
+    fetch: S.fetch,
+    binary: false,
+    minZoom: 0, maxZoom: S.maxZoom,
+    // Request floor(zoom) tiles, as MapLibre does; see tileZoom().
+    tileSize: DECK_TILE_SIZE,
+    // While the next zoom's tiles load, the default strategy keeps drawing
+    // the nearest loaded ancestor under them. Across a band edge that ancestor
+    // holds the coarse cells, and the cells are translucent, so both
+    // resolutions showed at once. no-overlap drops the ancestor the moment its
+    // children have arrived and never draws the two together.
+    refinementStrategy: "no-overlap",
+    // deck.gl's default is 6 tiles in flight. A tile from the archive is one
+    // range request at 400 to 1200 ms, and a zoom wants a dozen or more, so
+    // at 6 they arrive in rounds and no-overlap waits for the last round.
+    maxRequests: 20,
+    pickable: true,
+    onTileLoad: t => { onTile(t); tileProgress(); },
+    onTileUnload: onTileGone,
+    onViewportLoad: ts => {
+      setStatus("tiles", null);
+      // The incoming archive can now cover the screen, so the one underneath
+      // has nothing left to hide and is dropped.
+      if (S.outgoing) { S.outgoing = null; overlay.setProps({layers: buildLayers()}); }
+      scheduleHistogram(ts);
+      deepen();
+    },
+    onClick: showCell,
+    // The plan signature carries the archive, the selection and what the
+    // tiles have revealed about themselves; the filter range is a uniform and
+    // needs no trigger.
+    updateTriggers: {getFillColor: _plans.sig, getLineColor: _plans.sig,
+                     getFilterValue: S.id},
+    renderSubLayers: renderTile,
+  }));
+  return layers;
+}
+
+/**
+ * Add the buckets held only by archives that are not drawing.
+ *
+ * The drawing archive has already contributed; this fills the rest of the
+ * axis from the loader caches. Ownership is per bucket rather than per
+ * archive, because the overlap is real: the rolling window and the year both
+ * hold the last few days and disagree on the most recent one, where the
+ * window is complete and the year partial.
+ */
+function mergeMountedBuckets(buckets, band, view) {
+  if (S.mounted.size < 2) return;
+  const held = [...S.mounted.entries()]
+    .filter(([, m]) => m.unit === S.axis.unit)
+    .map(([id, m]) => ({...m, id, rebuilt: id === "latest" ? 2 : 1}));
+  for (const [id, cache] of _caches) {
+    if (id === S.id || !S.mounted.has(id)) continue;
+    let h;
+    try { h = cache.histogram(...zoomRange(band), view); } catch { continue; }
+    for (const key in h.buckets) {
+      // Only where this archive is the owner. Without that test a day both
+      // archives hold would be added twice.
+      const owner = ownerOf(held, key);
+      if (owner && owner.id === id) buckets[key] = h.buckets[key];
+    }
+  }
+}
+
+/** Put a loaded tile into a cache. The cache wants one flat feature list. */
+function addToCache(cache, t) {
+  const c = t.content || {cells: [], points: []};
+  cache.add({id: t.id, index: t.index, bbox: t.bbox,
+             content: c.cells.concat(c.points)});
+}
+
+function onTile(t) {
+  if (!S.tiles) return;
+  // The cache wants a flat feature list; the tile holds the split one.
+  const c = t.content || {cells: [], points: []};
+  S.tiles.add({id: t.id, index: t.index, bbox: t.bbox,
+               content: c.cells.concat(c.points)});
+  // Whether this archive carries running totals, and whether this band
+  // carries columns at all, can only be answered once a tile exists. Repaint
+  // if a tile just answered either, so the map does not wait for the user to
+  // move the selection.
+  const band = bandAt(S.bands, t.index.z);
+  const knewCum = S.hasCum, knewBand = S.bandBuckets.get(band && band.level);
+  hasCumulative();
+  bandHasBuckets(band);
+  if (knewCum === null || knewBand === undefined) applySelection();
+  scheduleHistogram();
+}
+function onTileGone(t) { if (S.tiles) S.tiles.remove(t); }
+
+/**
+ * How much of the current viewport's tile set has arrived.
+ *
+ * Read off the layer rather than counted here: deck.gl already tracks which
+ * tiles the viewport needs and which have resolved, and a tally kept
+ * alongside it drifts the moment a tile is evicted or a request is dropped.
+ */
+function tileProgress() {
+  // MapboxOverlay keeps the deck instance internally; _deck is where the
+  // built layers with their tileset state live. Guarded at every hop because
+  // this is deck.gl internals, and a status line must never be the thing that
+  // throws.
+  const d = overlay._deck;
+  const layer = d && d.layerManager && d.layerManager.getLayers
+    ? d.layerManager.getLayers().find(l => String(l.id).startsWith("fire-"))
+    : null;
+  const tiles = layer && layer.state && layer.state.tileset
+    ? layer.state.tileset.selectedTiles : null;
+  if (!tiles || !tiles.length) return setStatus("tiles", null);
+  const loaded = tiles.filter(t => t.isLoaded).length;
+  reportTileLoad(tiles.length, loaded);
+}
+
+// Selection changes are coalesced to one repaint per frame and no more: a
+// change rewrites the cells' colour buffers, which is cheap enough that the
+// map follows the drag directly. The MapLibre page had to throttle here.
+//
+// Measured at z2 over the 2026 archive, 150 one-day steps of a two-week
+// selection: deck.gl completed 149 frames during the gesture and was current
+// 10 ms after it ended. The MapLibre page completed none during the same
+// gesture and settled 389 ms after it, because a data-driven paint change
+// re-buckets every tile in its worker.
+let _pending = false;
+function applySelection() {
+  if (_pending) return;
+  _pending = true;
+  requestAnimationFrame(() => { _pending = false; applyNow(); });
+}
+
+function applyNow() {
+  if (!S.axis || !S.pm) return;
+  overlay.setProps({layers: buildLayers()});
+  const band = currentBand();
+  S.lastLevel = band ? band.level : null;
+  const plan = statsDriven(band) ? plans().stats : plans().tiles;
+  const {stops, scale} = stopsFor(band, plan.nsel);
+  renderLegend(stops, scale, plan.nsel);
+}
+
+const fmt = n => n >= 1e6 ? (n / 1e6).toFixed(1) + "M"
+  : n >= 1000 ? (n / 1000).toFixed(n >= 10000 ? 0 : 1) + "k" : String(n);
+
+function renderLegend(stops, scale, nsel) {
+  const band = currentBand();
+  const points = band && band.layer === PT_LAYER;
+  if (points) { stops = FRP_RAMP; }
+  el("lg").innerHTML = stops.map((st, i) => {
+    const hi = stops[i + 1] ? stops[i + 1][0] : null;
+    const unit = points ? " MW" : "";
+    return `<div class="lgrow"><span class="sw" style="background:${st[1]}"></span>` +
+           `${fmt(st[0])}${hi ? `–${fmt(hi)}` : "+"}${unit}</div>`;
+  }).join("");
+  el("lgtitle").textContent =
+    !band ? "Detections"
+    : points ? "Fire radiative power · MW"
+    : `Detections · r${band.level} cells`;
+  const n = el("lgnote");
+  if (points) {
+    n.textContent = "Individual detections, coloured by radiative power.";
+  } else if (!S.breaks) {
+    n.textContent = "This archive ships no firms:breaks; the built-in ramp is used.";
+  } else if (scale === 1) {
+    n.textContent = "Shipped data breaks, whole record.";
+  } else {
+    n.textContent = `Shipped data breaks scaled to the ${nsel} of ` +
+      `${S.archiveBuckets || S.axis.declaredBuckets} buckets selected.`;
+  }
+}
+
+// ------------------------------------------------------------ the histogram
+
+/**
+ * The bar palette, rescaled to the histogram on screen: fractions of the
+ * largest bucket in view, because a bar is the sum over every cell in the
+ * viewport and the cell breaks would put every bar in the top class.
+ */
+const RAMP_FRACTIONS = [0, .08, .2, .35, .52, .72, .88];
+function timelineRamp(max) {
+  if (!(max > 0)) return COUNT_RAMP;
+  const out = [];
+  COUNT_RAMP.forEach(([, colour], i) => {
+    const want = Math.max(1, Math.round(RAMP_FRACTIONS[i] * max));
+    out.push([out.length ? Math.max(want, out[out.length - 1][0] + 1) : want, colour]);
+  });
+  return out;
+}
+
+function viewBox() {
+  const b = map.getBounds();
+  return {w: b.getWest(), s: b.getSouth(), e: b.getEast(), n: b.getNorth()};
+}
+
+/**
+ * Sum the bucket columns over the cells in the viewport.
+ *
+ * The cache is asked for the current band's tiles only, so a zoom across a
+ * band edge never counts two resolutions together, and there is nothing to
+ * wait for. The sidecar answers for the slim band, and the points answer for
+ * themselves past the points threshold, as on the MapLibre page.
+ */
+function computeHistogram() {
+  if (!S.axis || !S.tiles) return;
+  const t0 = performance.now();
+  const view = viewBox();
+  const band = currentBand();
+  let buckets, n, label, mode;
+  if (inPoints()) {
+    const h = S.tiles.pointHistogram(...zoomRange(band), view);
+    buckets = h.buckets; n = h.points; label = "points in view"; mode = "points";
+  } else if (statsDriven(band)) {
+    const h = STATS.histogram(view.w, view.s, view.e, view.n, lngOverlaps);
+    buckets = h.buckets; n = h.cells; mode = "stats";
+    label = STATS.pending
+      ? `cells in view · ${STATS.pending} chunk(s) loading` : "cells in view";
+  } else {
+    const h = S.tiles.histogram(...zoomRange(band), view);
+    buckets = h.buckets; n = h.cells; label = "cells in view"; mode = "tiles";
+    // Fold in the archives that are loaded but not drawing. Each bucket is
+    // taken from exactly one of them -- whichever owns it -- so a day the
+    // rolling window and the year both hold is counted once, from the window,
+    // which is the one rebuilt hourly. Summing them instead would double
+    // every overlapping day.
+    mergeMountedBuckets(buckets, band, view);
+  }
+  let max = 0;
+  for (const k in buckets) if (buckets[k] > max) max = buckets[k];
+  _histoDirty = false;
+  tl.ramp = timelineRamp(max);
+  tl.setValues(buckets);
+  const ms = performance.now() - t0;
+  el("ms").textContent = `${ms.toFixed(0)} ms`;
+  el("ncells").textContent = n.toLocaleString();
+  el("nlabel").textContent = label;
+  window._lastHistogram = {ms, cells: n, mode,
+                           total: Object.values(buckets).reduce((a, x) => a + x, 0)};
+}
+
+// Recompute on settle, never on move. Only a new viewport or newly arrived
+// tiles can change the answer, so only those mark it dirty.
+let _histoPending = false;
+let _histoDirty = true;
+function scheduleHistogram() {
+  _histoDirty = true;
+  if (_histoPending) return;
+  _histoPending = true;
+  setTimeout(() => { _histoPending = false; computeHistogram(); }, 180);
+}
+// A handle for tests and the console. Read-only by convention.
+window.__explorer = {get map() { return map; }, get tl() { return tl; },
+                     get state() { return S; }, get overlay() { return overlay; }};
+
+map.on("moveend", scheduleHistogram);
+map.on("move", () => {
+  el("z").textContent = map.getZoom().toFixed(1);
+  // Crossing a band boundary changes the cells, the breaks that describe
+  // them, and the legend. The tiles carry their own band, so only the legend
+  // and the stats/tiles decision need the repaint.
+  const band = currentBand();
+  const level = band ? band.level : null;
+  if (level !== S.lastLevel) applySelection();
+  // Zooming towards detections the archive does not carry is the one case
+  // where the map correctly stops changing, so it needs saying on zoom rather
+  // than on load -- there is no load to hang it off.
+  reportNoPoints();
+  // And on the move, not only when a tile lands. tileProgress used to run from
+  // onTileLoad alone, so nothing was said until the first tile arrived -- which
+  // at the points band is the better part of a second after the zoom, which is
+  // precisely the silence the message exists to fill.
+  tileProgress();
+});
+
+// -------------------------------------------------------------- the timeline
+
+const tl = new Timeline(el("track"), {onChange: onTimeline});
+window._tl = tl;
+window._explorer = S;
+
+function onTimeline(e) {
+  S.sel = {...e.selection};
+  applySelection();
+  reportPartialSelection();
+  // After the readouts, so a switch does not race the numbers it replaces.
+  if (!e.dragging) activateOwner();
+  const a = el("selfrom"), b = el("selto");
+  if (e.keys && S.axis) {
+    const u = S.axis.unit;
+    // Ask the DOM what has focus rather than tracking it; see index.html.
+    if (document.activeElement !== a) a.value = keyToISO(e.keys.from, u);
+    if (document.activeElement !== b) b.value = keyToISO(e.keys.to, u);
+    a.title = formatKey(e.keys.from, u);
+    b.title = formatKey(e.keys.to, u);
+  }
+  const d = tl.domainKeys();
+  el("view").textContent = d && S.axis
+    ? `${formatKey(d.from, S.axis.unit)} → ${formatKey(d.to, S.axis.unit)}` : "–";
+  updateFitsHint(d);
+  considerSwitch(d, e.dragging, e.overflow, e.overflowDays);
+}
+
+// The button is only a fallback for when auto-switching is off, and a signal
+// of what is about to happen when it is on.
+function updateFitsHint(d) {
+  const btn = el("fits");
+  if (!d || !S.axis) { btn.style.display = "none"; return; }
+  const latest = ARCHIVES.latest && S.available.latest !== false
+    ? latestWindow() : null;
+  const years = ORDER.filter(k => /^\d{4}$/.test(k));
+  const want = chooseArchive(d, S.axis.unit, {latest, years});
+  if (want === S.id || !ARCHIVES[want] || S.available[want] === false) {
+    btn.style.display = "none";
+    return;
+  }
+  btn.style.display = "";
+  btn.textContent = autoSwitchOn() ? `switching to ${ARCHIVES[want].label}…`
+                                   : `this view fits ${ARCHIVES[want].label} →`;
+  btn.onclick = () => mount(want, currentCarry());
+}
+
+/** The current view and selection as real dates, for carrying across a switch. */
+function currentCarry() {
+  if (!S.axis) return null;
+  const d = tl.domainKeys(), k = tl.selectionKeys();
+  if (!d || !k) return null;
+  const u = S.axis.unit;
+  return {view: [keyDayRange(d.from, u)[0], keyDayRange(d.to, u)[1]],
+          sel:  [keyDayRange(k.from, u)[0], keyDayRange(k.to, u)[1]]};
+}
+
+/** Grow a carried window to `days`, keeping its centre. */
+function widenCarry(carry, days) {
+  if (!carry || !days) return carry;
+  const toD = k => new Date(+k.slice(0, 4), +k.slice(4, 6) - 1, +k.slice(6, 8));
+  const fmtD = d => `${d.getFullYear()}` +
+    String(d.getMonth() + 1).padStart(2, "0") +
+    String(d.getDate()).padStart(2, "0");
+  const a = toD(carry.view[0]), b = toD(carry.view[1]);
+  const have = (b - a) / 86400000;
+  if (days <= have) return carry;
+  const grow = (days - have) / 2;
+  return {sel: carry.sel,
+          view: [fmtD(new Date(a.getTime() - grow * 86400000)),
+                 fmtD(new Date(b.getTime() + grow * 86400000))]};
+}
+
+/** Land the freshly mounted axis on the window we came from. */
+function applyCarry(carry) {
+  const u = S.axis.unit;
+  const toKey = (d, end) => u === "month" ? d.slice(0, 6)
+    : (d.length === 8 ? d : keyDayRange(d.slice(0, 6), "month")[end ? 1 : 0]);
+  const clamp = k => k < S.axis.min ? S.axis.min : k > S.axis.max ? S.axis.max : k;
+  try {
+    tl.setDomainKeys(clamp(toKey(carry.view[0])), clamp(toKey(carry.view[1], true)));
+    tl.setSelectionKeys(clamp(toKey(carry.sel[0])), clamp(toKey(carry.sel[1], true)));
+  } catch (e) {
+    console.warn("could not carry the window across the switch", e);
+  }
+}
+
+// Switching archive is expensive, so it waits for the gesture to stop and for
+// the domain to hold still.
+const SWITCH_SETTLE_MS = 450;
+let _switchTimer = null;
+function considerSwitch(d, dragging, overflow, overflowDays) {
+  if (_switchTimer) { clearTimeout(_switchTimer); _switchTimer = null; }
+  if (!d || !S.axis || dragging || !autoSwitchOn()) return;
+  const latest = ARCHIVES.latest && S.available.latest !== false
+    ? latestWindow() : null;
+  const years = ORDER.filter(k => /^\d{4}$/.test(k));
+  // The overflow flag is the request the axis clamp threw away; honour it.
+  const want = overflow && S.id !== "alltime"
+    ? "alltime"
+    : chooseArchive(d, S.axis.unit, {latest, years});
+  if (want === S.id || !ARCHIVES[want] || S.available[want] === false) return;
+  // Preload, do not switch.
+  //
+  // Three rules were driving one slot and undoing each other: this one wants
+  // the archive that fits the view, activateOwner wants the one that best
+  // covers the selection, and deepen wanted the view's too. The published app
+  // flickered, and when it settled it left the loser as a stale outgoing layer
+  // -- which feeds no cache, so the timeline could not sum it either.
+  //
+  // They are not really three decisions. Which archive *draws* is the
+  // selection's, because the map's colours describe the selection. Which
+  // archives are *loaded* is the view's, because the timeline spans the view.
+  // This rule owns the second: it brings the view's archive in, gives it a
+  // loader layer, and leaves the drawing to activateOwner. Crossing a unit
+  // boundary is the exception -- a monthly axis cannot be drawn from a daily
+  // archive, so that one still switches.
+  const changesUnit = ARCHIVES[want] && want === "alltime" && S.axis.unit === "day";
+  const carry = widenCarry(currentCarry(), overflow ? overflowDays : 0);
+  _switchTimer = setTimeout(() => {
+    _switchTimer = null;
+    if (changesUnit) mount(want, carry);
+    else syncMounts(d);
+  }, SWITCH_SETTLE_MS);
+}
+
+/**
+ * Load every year the view touches, and drop the ones it has left.
+ *
+ * chooseArchive answers "which one archive best fits this view", which is the
+ * right question for drawing and the wrong one for loading. A view from
+ * September 2025 to May 2026 is mostly 2026, so that is what it returned --
+ * and 2026 was already mounted, so nothing happened and the 2025 half of the
+ * timeline stayed blank however long you looked at it. Not one request for
+ * fire-2025 was ever made.
+ *
+ * The view wants all of the years it overlaps, capped. planMounts has said so
+ * since the design went in; it had simply never been called.
+ *
+ * The cap is what keeps this affordable: each mounted archive fetches tiles
+ * for every viewport change, and against this bucket that is most of a second
+ * per request. Four archives loading at once is why going back to 2024 crawled.
+ */
+function syncMounts(domain) {
+  if (!S.axis || S.axis.unit !== "day") return;
+  const years = ORDER.filter(k => /^\d{4}$/.test(k) && S.available[k] !== false)
+                     .map(Number);
+  const plan = planMounts({fromYear: +String(domain.from).slice(0, 4),
+                           toYear: +String(domain.to).slice(0, 4)},
+                          {years, latest: !!ARCHIVES.latest});
+  const wanted = new Set(plan.years.map(String));
+  wanted.add("latest");
+  for (const id of [...S.mounted.keys()]) {
+    // Never drop what is drawing: the map would go blank for the sake of a
+    // request budget.
+    if (wanted.has(id) || id === S.id) continue;
+    S.mounted.delete(id);
+    _caches.delete(id);
+  }
+  for (const id of wanted) if (!S.mounted.has(id) && ARCHIVES[id]) preload(id);
+  tl.setGaps(gapsFor(S.axis));
+  overlay.setProps({layers: buildLayers()});
+}
+
+function autoSwitchOn() {
+  const c = el("autoswitch");
+  return !c || c.checked;
+}
+
+// The all-time timeline reads its counts from a sidecar rather than from the
+// tiles; see stats.js.
+let STATS = null, _statsOpen = null;
+function openStats() {
+  if (_statsOpen) return _statsOpen;
+  const st = new Stats(qs.get("stats") || `${BASE}/stats`);
+  _statsOpen = st.open(() => {
+    // Each chunk that lands widens the axis, so redraw as they arrive. The
+    // plan signature includes the loaded month count, so the newly loaded
+    // months actually repaint the map.
+    if (S.id === "alltime") { applySelection(); _histoDirty = true; computeHistogram(); }
+  }).then(() => { STATS = st; return st; })
+    .catch(e => {
+      console.warn("stats sidecar unavailable; falling back to the tiles", e);
+      _statsOpen = null;
+      return null;
+    });
+  return _statsOpen;
+}
+
+// The rolling window's own extent, once it has been read.
+let _latestWindow = null;
+function latestWindow() { return _latestWindow; }
+
+// ------------------------------------------------------------------ controls
+
+function renderArchiveControl() {
+  const sel = el("archive");
+  const sig = JSON.stringify([ORDER, S.id, ORDER.map(k => S.available[k] !== false)]);
+  if (sel._sig === sig) return;    // rebuilding mid-open would shut the dropdown
+  sel._sig = sig;
+  sel.innerHTML = "";
+  for (const k of ORDER) {
+    const o = document.createElement("option");
+    o.value = k;
+    o.textContent = ARCHIVES[k].label +
+      (S.available[k] === false ? " · unavailable" : "");
+    o.disabled = S.available[k] === false;
+    sel.appendChild(o);
+  }
+  if (S.id) sel.value = S.id;
+}
+
+// After an explicit pick, open the archive's whole extent when the view we
+// landed on would send the containment rule straight back; see index.html.
+el("archive").onchange = async e => {
+  const id = e.target.value;
+  if (id === S.id) return;
+  await mount(id);
+  if (!S.axis || S.id !== id) return;
+  const d = tl.domainKeys();
+  if (!d) return;
+  const latest = ARCHIVES.latest && S.available.latest !== false ? latestWindow() : null;
+  const years = ORDER.filter(k => /^\d{4}$/.test(k));
+  if (chooseArchive(d, S.axis.unit, {latest, years}) === id) return;
+  tl.setDomainKeys(S.axis.min, S.axis.max);
+};
+
+// month vs date decides which native picker appears, so it follows the axis.
+function syncInputs() {
+  const u = S.axis.unit;
+  for (const id of ["selfrom", "selto"]) {
+    const i = el(id);
+    i.type = u === "month" ? "month" : "date";
+    i.min = keyToISO(S.axis.min, u);
+    i.max = keyToISO(S.axis.max, u);
+  }
+}
+
+for (const id of ["selfrom", "selto"]) {
+  const i = el(id);
+  i.addEventListener("blur", () => {
+    if (S.axis) onTimeline({selection: S.sel, keys: tl.selectionKeys()});
+  });
+  i.addEventListener("change", () => {
+    if (!S.axis) return;
+    const u = S.axis.unit;
+    const from = isoToKey(el("selfrom").value, u);
+    const to = isoToKey(el("selto").value, u);
+    if (from && to) tl.setSelectionKeys(from, to);
+  });
+}
+
+el("presets").onclick = e => {
+  if (!("n" in e.target.dataset)) return;
+  const n = e.target.dataset.n;
+  n ? tl.setSpan(+n) : tl.reset();
+};
+el("zin").onclick = () => tl.zoomBy(1.6);
+el("zout").onclick = () => tl.zoomBy(1 / 1.6);
+el("fit").onclick = () => tl.fitToSelection();
+
+// A cell's own numbers, which is how you check that the map and the timeline
+// are reading the same thing.
+el("popx").onclick = () => { el("pop").style.display = "none"; };
+function showCell(info) {
+  const pop = el("pop");
+  const f = info.object;
+  if (!f || f.properties.layerName !== AGG_LAYER) { pop.style.display = "none"; return; }
+  const p = f.properties;
+  const band = bandAt(S.bands, info.tile ? info.tile.index.z : tileZoom(map.getZoom()));
+  const plan = statsDriven(band) ? plans().stats : plans().tiles;
+  const rows = [
+    ["a5 cell", p.a5_cell],
+    ["in selection", countFor(plan, p).toLocaleString()],
+    ["all time", (p.count || 0).toLocaleString()],
+    ["avg FRP", p.avg_frp == null ? "–" : (+p.avg_frp).toFixed(1) + " MW"],
+    ["max FRP", p.max_frp == null ? "–" : (+p.max_frp).toFixed(0) + " MW"],
+  ];
+  el("pt").innerHTML = rows.map(([k, v]) =>
+    `<tr><td style="color:var(--dim);padding:1.5px 0">${k}</td>` +
+    `<td style="text-align:right;font-variant-numeric:tabular-nums">${v}</td></tr>`)
+    .join("");
+  pop.style.display = "block";
+}
+
+// ----------------------------------------------------------------- start-up
+
+listYears();
+renderArchiveControl();
+map.on("load", async () => {
+  try {
+    const r = await readArchive(ARCHIVES.latest.url);
+    if (r.meta && r.meta.unit === "day")
+      _latestWindow = {min: r.meta.min, max: r.meta.max};
+  } catch { S.available.latest = false; renderArchiveControl(); }
+  // Land on the rolling window, not all time. It is the smallest archive
+  // published and the freshest data, which is what most visitors came for;
+  // all-time is one zoom-out away and the containment rule fetches it then.
+  await mount(qs.get("archive") || "latest");
+});
+// MapLibre v5 ships the globe toggle as a standard control, so it sits with
+// the other map chrome and looks like it belongs. It owns the projection
+// state; this page only reacts to it.
+map.addControl(new maplibregl.GlobeControl(), "top-right");
+
+// Rebuild on every projection change, whatever caused it. Twice: the first
+// pass runs while MapLibre is still mid-transition and deck occasionally
+// reads the old camera, and the second settles it. See PROJ_SFX above.
+map.on("projectiontransition", () => {
+  overlay.setProps({layers: buildLayers()});
+  setTimeout(() => overlay.setProps({layers: buildLayers()}), 80);
+});
+
+el("track").focus();
+</script></body></html>
