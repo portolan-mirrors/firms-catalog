@@ -60,8 +60,13 @@ with tempfile.TemporaryDirectory() as tmp:
         capture_output=True, text=True)
     if r.returncode != 0:
         # No staged data locally is normal; the static checks above still ran.
-        print(f"note: make_collection did not run here ({r.stderr.strip()[:70]});"
-              " the round-trip check was skipped")
+        # Anything else is a real break and must not read as a skip: when the
+        # builder started refusing a window-only tree, this printed a note and
+        # passed while the hourly refresh failed every hour for a week.
+        if "no year tables under" in r.stderr:
+            print("note: nothing staged here; the round-trip check was skipped")
+        else:
+            check(False, f"make_collection failed: {r.stderr.strip()[-300:]}")
     else:
         after = item_links(json.loads(out.read_text()))
         check(sorted(after) == sorted(before),
@@ -92,6 +97,52 @@ _ids = sorted(int(p.parent.name.split("=")[1])
 check(_years == _ids,
       f"year span widens from the items: got {_years[:1]}..{_years[-1:]} "
       f"({len(_years)}), items are {_ids[:1]}..{_ids[-1:]} ({len(_ids)})")
+
+# The hourly refresh stages the rolling window and nothing else.
+#
+# It never downloads the archives it is extending, so year=<Y>/live.parquet is
+# the only table under --data. A guard that required a detections.parquet there
+# turned every hourly run into a failed job -- fifty-five of them -- while every
+# other gate stayed green, because nothing else runs the builder in that shape.
+# This does, against a temp copy of the real item tree so the window is counted
+# past its year's published end the way it is in production.
+import shutil  # noqa: E402
+
+import duckdb  # noqa: E402
+
+with tempfile.TemporaryDirectory() as tmp:
+    stage = Path(tmp) / "stage/detections/year=2026"
+    stage.mkdir(parents=True)
+    con = duckdb.connect()
+    con.execute("INSTALL spatial; LOAD spatial;")
+    con.execute(f"""
+        COPY (SELECT
+                TIMESTAMP '2026-09-20 00:00:00' + INTERVAL (i) HOUR AS acq_datetime,
+                CAST(TIMESTAMP '2026-09-20 00:00:00' + INTERVAL (i) HOUR AS DATE) AS acq_date,
+                'VIIRS' AS sensor, 1.0 AS frp,
+                ST_Point((i % 180) - 90, (i % 90) - 45) AS geometry,
+                2026 AS year
+              FROM range(72) t(i))
+        TO '{stage / "live.parquet"}' (FORMAT parquet, COMPRESSION zstd)""")
+
+    cat = Path(tmp) / "cat"
+    shutil.copytree(ROOT / "catalog" / "detections", cat)
+    r = subprocess.run(
+        [sys.executable, str(ROOT / "tools" / "make_collection.py"),
+         "--data", str(stage.parent), "--out", str(cat / "collection.json")],
+        capture_output=True, text=True)
+    check(r.returncode == 0,
+          f"a window-only staging tree builds: rc={r.returncode} "
+          f"{r.stderr.strip()[-200:]}")
+    if r.returncode == 0:
+        rebuilt = json.loads((cat / "collection.json").read_text())
+        # Counted past the archive, not from zero and not twice: the item says
+        # where the published year ends and only the rows after that are new.
+        check(rebuilt["table:row_count"] == doc["table:row_count"] + 72,
+              f"the window is counted past the items: "
+              f"{doc['table:row_count']} + 72 != {rebuilt['table:row_count']}")
+        check(sorted(item_links(rebuilt)) == sorted(links),
+              "a window-only rebuild keeps every item link")
 
 if errors:
     print("\n".join(f"error  {e}" for e in errors))

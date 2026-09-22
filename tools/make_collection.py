@@ -127,8 +127,14 @@ def main() -> int:
     partitions = sorted(data.glob("year=*/detections.parquet"))
     live_files = sorted(data.glob("year=*/live.parquet"))
     files = partitions + live_files
-    if not partitions:
-        raise SystemExit(f"no year partitions under {data}")
+    # Any year table will do, archive or window. The hourly refresh stages the
+    # rolling window and nothing else -- it never downloads the archives it is
+    # extending -- so demanding a detections.parquet here refused the one
+    # caller that runs every hour. What the split above decides is what gets
+    # counted, not what has to be present; the branches below already carry a
+    # live.parquet whose year is described by an item rather than a local file.
+    if not files:
+        raise SystemExit(f"no year tables under {data}")
 
     # Count each row once. An item already reports its year's detections.parquet,
     # read from the footer, so scanning a local copy of that same file adds it
