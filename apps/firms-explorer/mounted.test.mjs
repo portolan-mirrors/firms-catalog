@@ -72,6 +72,20 @@ eq("a tie breaks toward the narrower archive",
 eq("no gaps once the year is mounted",
    gapsIn([latest, y2026], axisFor([latest, y2026])), []);
 {
+  // The axis reaches gapsIn in two shapes. axisFor() counts its buckets in
+  // `buckets`; makeAxis() counts the same buckets in `count`. Reading one
+  // field means reading undefined from the other, and an undefined count
+  // silently yields NO gaps -- which paints a wholly unloaded span as loaded,
+  // the one wrong answer that looks right. Both shapes must agree.
+  const span = {unit: "day", min: "20260101", max: "20260915"};
+  eq("an axis that counts its buckets in `buckets` finds the gap",
+     gapsIn([latest], {...span, buckets: 258}), [[0, 249]]);
+  eq("an axis that counts them in `count` finds the same gap",
+     gapsIn([latest], {...span, count: 258}), [[0, 249]]);
+  eq("an axis that states neither still finds it",
+     gapsIn([latest], span), [[0, 249]]);
+}
+{
   // Two years mounted with the year between them missing.
   const m = [y2025, {id: "2027", unit: "day", min: "20270101", max: "20271231", rebuilt: 60}];
   const gaps = gapsIn(m, axisFor(m));

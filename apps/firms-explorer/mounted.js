@@ -114,19 +114,29 @@ export function axisFor(mounted) {
  * Returned as ranges rather than a per-bucket flag because that is what a
  * painter wants -- one hatched rectangle per gap, not one per bucket -- and
  * because the gaps are few and wide while the buckets are many.
+ *
+ * How many buckets the axis holds is derived here rather than read off it.
+ * The axis arrives in two shapes: `axisFor` returns the count in `buckets`,
+ * and the timeline's own `makeAxis` returns the same number in `count`.
+ * Reading either field means reading `undefined` from the other, and an
+ * undefined bound makes the loop below run zero times -- so the function
+ * reports NO gaps for an axis where nothing at all is loaded. That is the one
+ * wrong answer that looks right: unhatched reads as loaded. The span from
+ * `min` to `max` is the same number in both shapes and is exact, so take it.
  */
 export function gapsIn(mounted, axis) {
   if (!axis) return [];
   const origin = keyIndex(axis.min, axis.unit);
+  const buckets = keyIndex(axis.max, axis.unit) - origin + 1;
   const out = [];
   let start = null;
-  for (let i = 0; i < axis.buckets; i++) {
+  for (let i = 0; i < buckets; i++) {
     const key = indexKey(origin + i, axis.unit);
     const held = mounted.some(m => m.unit === axis.unit && covers(m, key));
     if (!held && start === null) start = i;
     if (held && start !== null) { out.push([start, i - 1]); start = null; }
   }
-  if (start !== null) out.push([start, axis.buckets - 1]);
+  if (start !== null) out.push([start, buckets - 1]);
   return out;
 }
 

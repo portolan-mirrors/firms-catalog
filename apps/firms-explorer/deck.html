@@ -77,6 +77,16 @@
    background:rgba(148,163,184,.22);border-radius:2px;overflow:hidden}
  .status .bar i{display:block;height:100%;background:#e8722c;
    transition:width .18s linear}
+ /* A spinner as well as the bar. The bar answers "how far", which a stalled
+    request leaves sitting at the same fraction for ten seconds looking
+    identical to nothing happening at all; the spinner answers "still going",
+    which is the question being asked at that moment. */
+ .status .spin{display:block;flex:none;width:9px;height:9px;border-radius:50%;
+   border:1.5px solid rgba(148,163,184,.30);border-top-color:#e8722c;
+   animation:spin .7s linear infinite}
+ @keyframes spin{to{transform:rotate(360deg)}}
+ @media (prefers-reduced-motion:reduce){
+   .status .spin{animation-duration:2.4s}}
  .legend{display:flex;flex-direction:column;gap:2px}
  .lgrow{display:flex;align-items:center;gap:7px;font-size:10.5px;color:var(--dim)}
  .sw{width:15px;height:10px;border-radius:2px;flex:none}
@@ -164,7 +174,7 @@ import {Timeline, makeAxis, formatKey, keyToISO, isoToKey, COUNT_RAMP}
   from "./timeline.js";
 import {bandAt, chooseArchive, keyDayRange, parseJSONish, pointsMinZoom,
         pyramid, shippedStops, timelineFromMetadata} from "./archives.js";
-import {axisFor, bestCover, gapsIn, ownerOf, planMounts} from "./mounted.js";
+import {axisFor, bestCover, covers, gapsIn, ownerOf, planMounts} from "./mounted.js";
 import {Stats} from "./stats.js";
 import {DECK_TILE_SIZE, TileCache, bucketIndex, countFor, fillFor, lngOverlaps,
         selectionPlan, tileZoom} from "./deck-cells.js";
@@ -439,8 +449,14 @@ async function mount(id, carry) {
   // the same archive has nothing to hand over from, and holding a stale copy
   // of yourself underneath is how two resolutions end up composited.
   if (S.id && S.id !== id && S.pm) {
+    // The frozen context is what makes the hand-over actually seamless; without
+    // one the layer below is recoloured against the incoming selection and
+    // paints nothing. Only its own is any use: after an eviction and remount
+    // the last remembered frame can belong to a different archive.
+    const frozen = _painted && _painted.id === S.id ? _painted : null;
     S.outgoing = {id: S.id, fetch: S.fetch, maxZoom: S.maxZoom,
-                  render: {renderSubLayers: renderTile,
+                  render: {renderSubLayers: frozen ? p => renderTile(p, frozen)
+                                                   : renderTile,
                            updateTriggers: {getFillColor: _plans.sig,
                                             getLineColor: _plans.sig,
                                             getFilterValue: S.id}}};
@@ -473,12 +489,27 @@ async function mount(id, carry) {
   // cheapest thing to draw, not the whole story. The span it does not cover is
   // reported as a gap so it draws hatched rather than as a row of empty bars.
   tl.metricLabel = "detections";
-  tl.setSource(extent, {});
-  tl.setGaps(gapsFor(extent));
-  // Before applyCarry, not after: applyCarry emits, and the emit writes the
-  // selection into the date inputs, which have to be the right type first.
-  syncInputs();
-  if (carry) applyCarry(carry);
+  // Nothing may react to the half-built state between here and the carry.
+  //
+  // setSource opens the new axis at its own default window -- the last hundred
+  // days -- and emits; applyCarry then moves it to where the viewer actually
+  // was and emits again. Both emits run onTimeline, and activateOwner acts on
+  // them. The default window's selection belongs to the rolling window, so it
+  // mounts "latest"; that mount re-opens the default, its carry moves back, and
+  // the two rules chase each other about twenty times a second until the page
+  // stops responding. The intermediate window is not a state anyone chose, so
+  // it is not published; only the settled one is.
+  _mounting = true;
+  try {
+    tl.setSource(extent, {});
+    tl.setGaps(gapsFor(extent));
+    // Before applyCarry, not after: applyCarry emits, and the emit writes the
+    // selection into the date inputs, which have to be the right type first.
+    syncInputs();
+    if (carry) applyCarry(carry);
+  } finally {
+    _mounting = false;
+  }
 
   if (id === "alltime") openStats();
 
@@ -492,7 +523,15 @@ async function mount(id, carry) {
   showNotes(arc, read);
   applySelection();
   scheduleHistogram();
+  // The suppressed emits included the settled one, so ask once, here, whether
+  // the archive that came up is really the one that covers the selection we
+  // landed on. At most one further hop: the carry fixes the selection, so the
+  // second answer is the same as the first and it stops.
+  activateOwner();
 }
+
+/** True while mount is between opening an axis and landing the carried view. */
+let _mounting = false;
 
 /**
  * The axis extent to draw, which is not always the mounted archive's own.
@@ -512,13 +551,20 @@ function widenedExtent(meta) {
               : meta;
 }
 
-/** Which bucket ranges of the drawn axis nothing has actually loaded. */
+/**
+ * Which bucket ranges of the drawn axis nothing has actually loaded.
+ *
+ * Only the unit and the two ends are passed on. Callers hand this function
+ * both axis shapes -- a raw archive extent, which counts its buckets in
+ * `buckets`, and `S.axis` from makeAxis, which counts them in `count` -- and
+ * forwarding a bucket count meant forwarding `undefined` half the time. Ends
+ * are unambiguous, and gapsIn counts the span itself.
+ */
 function gapsFor(extent) {
   const held = [...S.mounted.values()]
     .filter(m => m.unit === extent.unit)
     .map(m => ({unit: m.unit, min: m.min, max: m.max}));
-  return gapsIn(held, {unit: extent.unit, min: extent.min, max: extent.max,
-                       buckets: extent.buckets});
+  return gapsIn(held, {unit: extent.unit, min: extent.min, max: extent.max});
 }
 
 /**
@@ -613,14 +659,15 @@ function statsDriven(band = currentBand()) {
  * thresholds are scaled by the selection's share of the axis. At full span
  * the scale is 1 and the shipped breaks are used exactly as published.
  */
-function stopsFor(band, nsel) {
+function stopsFor(band, nsel, frozen) {
+  const src = frozen || S;
   // Against the archive's own record, not the drawn axis. Widening the axis
   // to 9,755 days while the breaks describe 258 divided every threshold by
   // thirty-eight and put almost every cell in the top class -- the map went
   // uniformly red and stayed that way.
-  const scale = nsel / Math.max(1, S.archiveBuckets || S.axis.declaredBuckets);
-  const st = band && S.breaks
-    ? shippedStops(S.breaks, band.level, "count", COUNT_RAMP, scale) : null;
+  const scale = nsel / Math.max(1, src.archiveBuckets || src.axis.declaredBuckets);
+  const st = band && src.breaks
+    ? shippedStops(src.breaks, band.level, "count", COUNT_RAMP, scale) : null;
   return {stops: st || COUNT_RAMP, scale};
 }
 
@@ -647,6 +694,43 @@ function plans() {
   }
   _plans = {tiles, stats, sig};
   return _plans;
+}
+
+/**
+ * Everything renderTile reads, as it stood the last time the drawing archive
+ * could actually paint the selection.
+ *
+ * The outgoing layer is meant to hold the picture until the incoming archive
+ * has tiles, and the comment where it is built has always said so. It did not.
+ * renderTile reads live globals, so the moment the selection crossed into
+ * December the 2026 tiles underneath were recoloured against a plan asking for
+ * count_202512xx columns they do not carry; every cell counted zero, fell
+ * under the floor, and painted fully transparent. The layer whose whole job
+ * was to cover the switch went invisible at exactly the switch -- about two
+ * hundred milliseconds of empty map, which is the flicker.
+ *
+ * Freezing at mount time is too late: the selection moves first, applySelection
+ * rebuilds the plans, and only then does activateOwner decide to switch, so by
+ * then `_plans` already describes December. So the snapshot is taken on the way
+ * past instead, and only while the archive still covers what is selected. Once
+ * the selection leaves it the snapshot stops updating and keeps the last frame
+ * the archive was able to draw, which is precisely the one still on screen.
+ */
+let _painted = null;
+function rememberPainted() {
+  const m = S.mounted.get(S.id);
+  if (!m || !S.axis || !S.sel) return;
+  const from = S.axis.keyAt(Math.round(S.sel.from));
+  const to = S.axis.keyAt(Math.round(S.sel.to));
+  if (!covers(m, from) && !covers(m, to)) return;
+  // Resolved per band now, while the tiles that answer it are still the
+  // drawing archive's; the frozen renderer must not re-probe them later.
+  const driven = new Map((S.bands || []).map(b => [b.level, statsDriven(b)]));
+  _painted = {
+    id: S.id, plans: _plans, bands: S.bands, breaks: S.breaks,
+    archiveBuckets: S.archiveBuckets, axis: S.axis, sel: {...S.sel},
+    driven: b => !!(b && driven.get(b.level)),
+  };
 }
 
 const OUTLINE = [0, 0, 0, 72], NO_LINE = [0, 0, 0, 0];
@@ -702,12 +786,16 @@ function splitFetch(pm) {
 }
 
 /** A tile's sublayers: cells coloured by the selection, points filtered by it. */
-function renderTile(p) {
+function renderTile(p, frozen) {
   if (!p.data) return null;               // an empty tile
+  const src = frozen || S;
   const z = p.tile.index.z;
-  const band = bandAt(S.bands, z);
-  const plan = statsDriven(band) ? _plans.stats : _plans.tiles;
-  const {stops} = stopsFor(band, plan.nsel);
+  const band = bandAt(src.bands, z);
+  const built = frozen ? frozen.plans : _plans;
+  const plan = (frozen ? frozen.driven(band) : statsDriven(band))
+    ? built.stats : built.tiles;
+  if (!plan) return null;
+  const {stops} = stopsFor(band, plan.nsel, frozen);
   const floor = stops[0][0];
   const out = [];
   if (p.data.cells.length) out.push(new deck.GeoJsonLayer({
@@ -728,8 +816,8 @@ function renderTile(p) {
     // The selection filters the points on the GPU: a uniform update per
     // change, no relayout, no per-point JavaScript.
     extensions: [...(p.extensions || []), POINT_FILTER],
-    getFilterValue: f => bucketIndex(f.properties, S.axis),
-    filterRange: [S.sel.from, S.sel.to],
+    getFilterValue: f => bucketIndex(f.properties, src.axis),
+    filterRange: [src.sel.from, src.sel.to],
   }));
   return out;
 }
@@ -758,7 +846,11 @@ function setStatus(key, html, pct) {
   const el_ = el("status");
   if (!_status.size) { el_.className = "status"; el_.innerHTML = ""; return; }
   el_.className = "status on";
-  el_.innerHTML = [..._status.values()].map(m =>
+  // The spinner leads, once for the row rather than once per message. A
+  // fraction that holds still for ten seconds is indistinguishable from a
+  // fraction that has stopped, and the tiles here are slow enough that this
+  // happens often; something that is visibly still turning answers it.
+  el_.innerHTML = `<i class="spin"></i>` + [..._status.values()].map(m =>
     `<span>${m.html}</span>` + (m.pct == null ? "" :
       `<div class="bar"><i style="width:${Math.round(m.pct * 100)}%"></i></div>`)
   ).join("");
@@ -870,7 +962,8 @@ function deepen() {
 async function preload(id) {
   const arc = ARCHIVES[id];
   if (!arc || S.mounted.has(id)) return;
-  setStatus("preload", `Loading the rest of the timeline from ${arc.label}…`);
+  _preloading.add(id);
+  setStatus("timeline", `Loading ${arc.label} into the timeline…`);
   try {
     let read = _reads.get(id);
     if (!read) { read = await readArchive(arc.url); _reads.set(id, read); }
@@ -882,13 +975,32 @@ async function preload(id) {
     // the moment this lands -- before a single tile of it has arrived.
     tl.setGaps(gapsFor(S.axis));
     overlay.setProps({layers: buildLayers()});
+    // And ask again who should draw. An archive can land precisely because the
+    // selection needed it -- nothing else covers those days -- and until this
+    // ran, the answer was recomputed only on the next gesture, so the map sat
+    // on the old archive with no sign that the right one had arrived.
+    activateOwner();
   } catch (e) {
     S.available[id] = false;
     console.warn("preload failed: " + arc.url, e);
   } finally {
-    setStatus("preload", null);
+    // The message is not cleared here, and on success the archive is not struck
+    // off either. Opening it is the quick part; what follows is a few hundred
+    // tiles, and letting go at this point put the toolbar back to silence
+    // exactly as the slow half began. `timelineProgress` hands over once the
+    // loader layer has tiles of its own to report. If it never landed there is
+    // nothing to hand over to, so it goes now.
+    if (!S.mounted.has(id)) _preloading.delete(id);
+    timelineProgress();
   }
 }
+
+/**
+ * Archives being opened: from the request for their metadata until their loader
+ * layer has tiles to count. `timelineProgress` empties it, not `preload`, so
+ * that the message survives the seam between the two.
+ */
+const _preloading = new Set();
 
 /**
  * Let the selection decide which archive draws.
@@ -912,21 +1024,84 @@ async function preload(id) {
  * fifty-two of them. Where both cover the selection whole -- the default five
  * days -- the fresher wins, which is what keeps today complete.
  */
-function activateOwner() {
-  if (!S.axis || !S.sel || !autoSwitchOn()) return;
+function activateOwner(midDrag = false) {
+  if (!S.axis || !S.sel || !autoSwitchOn() || _mounting) return;
   const held = [...S.mounted.entries()]
     .filter(([, m]) => m.unit === S.axis.unit)
     .map(([id, m]) => ({...m, id, rebuilt: id === "latest" ? 2 : 1}));
   if (held.length < 2) return;
-  const owner = bestCover(held, S.axis.keyAt(S.sel.from), S.axis.keyAt(S.sel.to));
+  const from = S.axis.keyAt(S.sel.from), to = S.axis.keyAt(S.sel.to);
+  const owner = bestCover(held, from, to);
   if (!owner || owner.id === S.id) return;
+  // Mid-gesture, switch only to stop the map being blank.
+  //
+  // This used to wait for the pointer to come up, and that is what dragging a
+  // selection across New Year looked like: pull it from mid-January back into
+  // December and every cell disappears -- not dimmed, not stale, gone -- and
+  // it stays gone for as long as you keep dragging. 2026 was still the archive
+  // on screen and it has no column for a day in 2025, so every cell counted
+  // zero and was filtered away. Coming back the other way did the same thing
+  // in reverse, with 2025 drawing a January selection.
+  //
+  // The cost is why it waited: a switch rereads the archive, rebuilds the axis
+  // and refetches every tile. So it is spent only when the archive on screen
+  // covers *none* of the selected days, which is exactly the blank, and which
+  // happens once per boundary crossed rather than once per pointer move. A
+  // switch that would merely be a better fit still waits for the release. The
+  // gesture itself is unharmed: the drag works from the snapshot it took on
+  // pointerdown, and the carry puts the axis back where the pointer left it.
+  if (midDrag) {
+    if (_coverMount || bestCover(held.filter(h => h.id === S.id), from, to)) return;
+    _coverMount = owner.id;
+    mount(owner.id, currentCarry()).finally(() => { _coverMount = null; });
+    return;
+  }
   mount(owner.id, currentCarry());
+}
+
+/** The archive a mid-drag switch is already fetching, so it is asked for once. */
+let _coverMount = null;
+
+/**
+ * Bring the selection along once the view has left it behind completely.
+ *
+ * The map draws the selection, not the view, and that is right: the colours
+ * have to describe a span of days, and the view is a span of pixels. But it
+ * left dragging the timeline back through the years doing nothing at all to
+ * the map. Scroll from September 2026 to the middle of 2025 and every cell
+ * still showed the last seven days, with the archive picker still reading
+ * "Last 7 days · daily" -- the one thing on screen that had not moved was the
+ * thing the whole gesture was aimed at.
+ *
+ * So the selection follows, but only when it has to. While any part of it is
+ * still on screen it stays exactly where it is, because pushing the view a
+ * little to see what is next to a span is not a request to change the span.
+ * Once it is off the edge entirely there is nothing left to preserve, and it
+ * comes back against the edge it went out by, keeping its length: drag back
+ * and it arrives on the right, drag forward and on the left, in both cases at
+ * the end of the view nearest where the user last saw it.
+ *
+ * Only at rest, and only with auto-switching on -- the caller sees to both.
+ * Mid-drag it would be a selection skidding along under the pointer, and with
+ * auto off nothing would switch to cover where it landed.
+ */
+function carrySelection() {
+  if (!S.sel || !S.axis || !tl.domain) return false;
+  const lo = Math.ceil(tl.domain[0]), hi = Math.floor(tl.domain[1]);
+  if (hi <= lo) return false;
+  const {from, to} = S.sel;
+  if (to >= lo && from <= hi) return false;       // still partly in view
+  const len = Math.min(to - from, hi - lo);
+  const start = from > hi ? hi - len : lo;
+  tl.setSelectionKeys(S.axis.keyAt(start), S.axis.keyAt(start + len));
+  return true;
 }
 
 /** The deck.gl layers for the mounted archive. */
 function buildLayers() {
   if (!S.axis || !S.pm) return [];
   plans();
+  rememberPainted();
   const layers = [];
   // The outgoing archive keeps drawing underneath until the incoming one has
   // a viewport's worth of tiles. Swapping the layer id alone makes deck drop
@@ -978,9 +1153,9 @@ function buildLayers() {
       refinementStrategy: "no-overlap",
       maxRequests: 6,
       pickable: false,
-      onTileLoad: t => addToCache(cache, t),
+      onTileLoad: t => { addToCache(cache, t); timelineProgress(); },
       onTileUnload: t => cache.remove(t),
-      onViewportLoad: () => scheduleHistogram(),
+      onViewportLoad: () => { scheduleHistogram(); timelineProgress(); },
       // Nothing drawn: the point is the fetch and the cache, not pixels.
       renderSubLayers: () => null,
     }));
@@ -1087,19 +1262,80 @@ function onTileGone(t) { if (S.tiles) S.tiles.remove(t); }
  * alongside it drifts the moment a tile is evicted or a request is dropped.
  */
 function tileProgress() {
-  // MapboxOverlay keeps the deck instance internally; _deck is where the
-  // built layers with their tileset state live. Guarded at every hop because
-  // this is deck.gl internals, and a status line must never be the thing that
-  // throws.
-  const d = overlay._deck;
-  const layer = d && d.layerManager && d.layerManager.getLayers
-    ? d.layerManager.getLayers().find(l => String(l.id).startsWith("fire-"))
-    : null;
+  const layer = deckLayers().find(l => String(l.id).startsWith("fire-"));
   const tiles = layer && layer.state && layer.state.tileset
     ? layer.state.tileset.selectedTiles : null;
   if (!tiles || !tiles.length) return setStatus("tiles", null);
   const loaded = tiles.filter(t => t.isLoaded).length;
   reportTileLoad(tiles.length, loaded);
+}
+
+/**
+ * deck's live layers, or none.
+ *
+ * MapboxOverlay keeps the deck instance internally; `_deck` is where the built
+ * layers with their tileset state live. Guarded at every hop because this is
+ * deck.gl internals, and a status line must never be the thing that throws.
+ */
+function deckLayers() {
+  const d = overlay._deck;
+  return d && d.layerManager && d.layerManager.getLayers
+    ? d.layerManager.getLayers() : [];
+}
+
+/**
+ * How much of the rest of the timeline is still arriving.
+ *
+ * The drawing layer has always reported its tiles to the toolbar. The loader
+ * layers -- the archives mounted only so the bar chart can sum them -- report
+ * nothing, and they are the slow ones: a year is a few hundred tiles against
+ * this bucket. So scrolling back into 2024 spent twenty seconds looking
+ * stalled, with the hatch gone and the bars still empty and no indication that
+ * anything was on its way. The honest answer was already in deck's tileset.
+ *
+ * Counted across every loader layer at once, because two years can be
+ * arriving together and two separate progress bars racing each other in a
+ * toolbar slot says less than one.
+ */
+function timelineProgress() {
+  let total = 0, loaded = 0;
+  const pending = new Set();
+  // An archive is "opening" from the moment preload asks for it until its
+  // loader layer has chosen tiles. It has to stay pending across that seam:
+  // handing over on preload's return instead put the toolbar back to blank for
+  // the fifty milliseconds before the first tile reported, which is visible as
+  // a flicker and reads as the load having finished.
+  for (const id of [..._preloading]) {
+    const m = S.mounted.get(id);
+    if (!m) { pending.add(id); continue; }   // metadata still in flight
+    // Landed, but it will never have a loader layer: either it was promoted
+    // to drawing, or it is at a unit this axis does not draw. Either way it is
+    // no longer this line's business, and leaving it in would wedge the
+    // message on permanently.
+    if (id === S.id || !S.axis || m.unit !== S.axis.unit) _preloading.delete(id);
+    else pending.add(id);
+  }
+  for (const l of deckLayers()) {
+    const id = [...S.mounted.keys()].find(k => String(l.id) === "load-" + k);
+    if (!id) continue;
+    const tiles = l.state && l.state.tileset ? l.state.tileset.selectedTiles : null;
+    if (!tiles) continue;
+    _preloading.delete(id);   // its layer is up; tiles speak for it now
+    const done = tiles.filter(t => t.isLoaded).length;
+    total += tiles.length;
+    loaded += done;
+    if (done < tiles.length) pending.add(id);
+    else pending.delete(id);
+  }
+  // Nothing opening and nothing outstanding: the slot goes back to whoever
+  // else wants it.
+  if (!pending.size) return setStatus("timeline", null);
+  // Opening, but deck has not chosen its tiles yet. Leave preload's own
+  // message standing rather than replacing it with "0 of 0".
+  if (!total) return;
+  const names = [...pending].map(id => (ARCHIVES[id] || {}).label || id);
+  setStatus("timeline", `Loading ${names.join(" and ")}… ` +
+            `${loaded} of ${total} tiles`, loaded / total);
 }
 
 // Selection changes are coalesced to one repaint per frame and no more: a
@@ -1271,7 +1507,7 @@ function onTimeline(e) {
   applySelection();
   reportPartialSelection();
   // After the readouts, so a switch does not race the numbers it replaces.
-  if (!e.dragging) activateOwner();
+  activateOwner(e.dragging);
   const a = el("selfrom"), b = el("selto");
   if (e.keys && S.axis) {
     const u = S.axis.unit;
@@ -1348,12 +1584,41 @@ function applyCarry(carry) {
 }
 
 // Switching archive is expensive, so it waits for the gesture to stop and for
-// the domain to hold still.
+// the domain to hold still. Loading is not, so it waits only long enough that
+// a drag cannot fire a request per pointer move.
 const SWITCH_SETTLE_MS = 450;
+const LOAD_EVERY_MS = 150;
 let _switchTimer = null;
+let _lastLoad = 0;
 function considerSwitch(d, dragging, overflow, overflowDays) {
   if (_switchTimer) { clearTimeout(_switchTimer); _switchTimer = null; }
-  if (!d || !S.axis || dragging || !autoSwitchOn()) return;
+  if (!d || !S.axis || !autoSwitchOn()) return;
+  // Load while the drag is happening; switch only once it has ended.
+  //
+  // This used to return here on `dragging`, and that is why a drag across New
+  // Year appeared to do nothing until the pointer came up. You could drag the
+  // view a year back, watch the hatch sit there under the cursor for the whole
+  // gesture, and only on release would the year be asked for -- which reads as
+  // the drag having failed, not as loading.
+  //
+  // The two halves of the settle are not equally expensive. Changing which
+  // archive *draws* rebuilds the axis, the plans and every cell's colour, and
+  // doing that mid-gesture would fight the gesture; it still waits. Loading is
+  // a metadata read plus a layer that paints nothing, and deck is refetching
+  // tiles for the moving viewport either way. So loading goes now.
+  if (dragging) {
+    const now = performance.now();
+    const wait = Math.max(0, LOAD_EVERY_MS - (now - _lastLoad));
+    // Throttled on the leading edge, not debounced. A debounce never fires
+    // during a continuous drag, which is the one state this exists for.
+    if (!wait) { _lastLoad = now; syncMounts(d, {evict: false}); }
+    else _switchTimer = setTimeout(() => {
+      _switchTimer = null;
+      _lastLoad = performance.now();
+      syncMounts(d, {evict: false});
+    }, wait);
+    return;
+  }
   const latest = ARCHIVES.latest && S.available.latest !== false
     ? latestWindow() : null;
   const years = ORDER.filter(k => /^\d{4}$/.test(k));
@@ -1361,7 +1626,6 @@ function considerSwitch(d, dragging, overflow, overflowDays) {
   const want = overflow && S.id !== "alltime"
     ? "alltime"
     : chooseArchive(d, S.axis.unit, {latest, years});
-  if (want === S.id || !ARCHIVES[want] || S.available[want] === false) return;
   // Preload, do not switch.
   //
   // Three rules were driving one slot and undoing each other: this one wants
@@ -1377,13 +1641,40 @@ function considerSwitch(d, dragging, overflow, overflowDays) {
   // loader layer, and leaves the drawing to activateOwner. Crossing a unit
   // boundary is the exception -- a monthly axis cannot be drawn from a daily
   // archive, so that one still switches.
-  const changesUnit = ARCHIVES[want] && want === "alltime" && S.axis.unit === "day";
+  //
+  // There used to be a `want === S.id` early return above, and it is why the
+  // seamless timeline never arrived. `want` is one archive; the view can touch
+  // two. Drawing 2026 with the view dragged back into June 2025 makes
+  // chooseArchive say "2026" -- correctly, most of the view is 2026 -- and that
+  // equalled S.id, so the whole settle was skipped and syncMounts, the function
+  // written for exactly this, never ran. fire-2025 was never requested and the
+  // 2025 half stayed hatched for as long as you cared to look at it. Nothing
+  // downstream needs the guard: syncMounts mounts the set the view implies and
+  // is idempotent when that set is already mounted.
+  const changesUnit = ARCHIVES[want] && S.available[want] !== false &&
+                      unitOf(want) !== S.axis.unit;
   const carry = widenCarry(currentCarry(), overflow ? overflowDays : 0);
   _switchTimer = setTimeout(() => {
     _switchTimer = null;
     if (changesUnit) mount(want, carry);
-    else syncMounts(d);
+    // The order matters. carrySelection emits, which runs activateOwner, which
+    // is what actually puts the year under the map; syncMounts then makes sure
+    // the rest of the view is loaded around it.
+    else { carrySelection(); syncMounts(d); }
   }, SWITCH_SETTLE_MS);
+}
+
+/**
+ * The bucket unit an archive draws in, by id.
+ *
+ * Stated symmetrically so both crossings work. The day-to-month direction was
+ * spelled out inline and the month-to-day one was not, so zooming out to the
+ * monthly archive was a one-way door: once on it, zooming into a single year
+ * left the unit at "month", syncMounts declined to run at all, and daily
+ * resolution could only be got back by reloading the page.
+ */
+function unitOf(id) {
+  return id === "alltime" ? "month" : "day";
 }
 
 /**
@@ -1403,7 +1694,7 @@ function considerSwitch(d, dragging, overflow, overflowDays) {
  * for every viewport change, and against this bucket that is most of a second
  * per request. Four archives loading at once is why going back to 2024 crawled.
  */
-function syncMounts(domain) {
+function syncMounts(domain, {evict = true} = {}) {
   if (!S.axis || S.axis.unit !== "day") return;
   const years = ORDER.filter(k => /^\d{4}$/.test(k) && S.available[k] !== false)
                      .map(Number);
@@ -1412,16 +1703,54 @@ function syncMounts(domain) {
                           {years, latest: !!ARCHIVES.latest});
   const wanted = new Set(plan.years.map(String));
   wanted.add("latest");
-  for (const id of [...S.mounted.keys()]) {
+  for (const y of selectionYears()) wanted.add(y);
+  // Mid-drag nothing is dropped, because where the drag will end is not known
+  // yet. An archive evicted as the pointer passes over it has to be fetched
+  // again from nothing when the drag turns back, and a drag that overshoots
+  // and comes back is the ordinary way of finding a date.
+  let dropped = false;
+  if (evict) for (const id of [...S.mounted.keys()]) {
     // Never drop what is drawing: the map would go blank for the sake of a
     // request budget.
     if (wanted.has(id) || id === S.id) continue;
     S.mounted.delete(id);
     _caches.delete(id);
+    dropped = true;
   }
   for (const id of wanted) if (!S.mounted.has(id) && ARCHIVES[id]) preload(id);
-  tl.setGaps(gapsFor(S.axis));
-  overlay.setProps({layers: buildLayers()});
+  // Only for the eviction case. preload does both of these itself when an
+  // archive lands, and this runs several times a second during a drag, where
+  // rebuilding every layer for an unchanged mounted set is pure jank.
+  if (dropped) {
+    tl.setGaps(gapsFor(S.axis));
+    overlay.setProps({layers: buildLayers()});
+  }
+}
+
+/**
+ * The years the selection falls in, which are not always the view's.
+ *
+ * The view decides what is *loaded* and the selection decides what *draws*,
+ * and the two can end up years apart. Dragging the selection keeps it inside
+ * the view, but dragging the *view* leaves the selection where it was, on
+ * purpose: it is how you keep a span of interest pinned while you look around
+ * it. Planning the mounted set from the view alone then evicted the archive
+ * the map was coloured from, and the cells vanished -- not hatched, not zero,
+ * gone, with the archive selector still naming a year that cannot cover the
+ * selected days.
+ *
+ * Nothing brought them back, either. `bestCover` returns null once no mounted
+ * archive covers the selection, `activateOwner` gives up on null rather than
+ * pick a wrong archive, and only a view change runs this. So the selection's
+ * years are held as firmly as the view's, capped for the same reason.
+ */
+function selectionYears() {
+  if (!S.sel || !S.axis || S.axis.unit !== "day") return [];
+  const first = +String(S.axis.keyAt(S.sel.from)).slice(0, 4);
+  const last = +String(S.axis.keyAt(S.sel.to)).slice(0, 4);
+  const out = [];
+  for (let y = first; y <= last && y - first < 2; y++) out.push(String(y));
+  return out;
 }
 
 function autoSwitchOn() {
@@ -1549,7 +1878,23 @@ function showCell(info) {
 
 listYears();
 renderArchiveControl();
-map.on("load", async () => {
+/**
+ * Read the fire archive now, not when the basemap has finished.
+ *
+ * This used to hang off `map.on("load")`, which does not fire until MapLibre
+ * has the style *and* a first full frame of basemap tiles. On a slow link that
+ * was fourteen to twenty seconds in which not one byte of fire data had been
+ * asked for, and the app sat on "loading…" with an empty timeline the whole
+ * time. It was a queue rather than congestion: the first fire request went out
+ * twenty milliseconds after the last basemap tile landed, every run.
+ *
+ * There was never a dependency to wait on. deck draws the cells on its own
+ * canvas above the map, so it needs the viewport -- which exists as soon as
+ * the Map is constructed -- and not the basemap's tiles. So the two race, and
+ * the fires win easily: the rolling window is a handful of small range reads
+ * against a basemap's worth of vector tiles.
+ */
+(async () => {
   try {
     const r = await readArchive(ARCHIVES.latest.url);
     if (r.meta && r.meta.unit === "day")
@@ -1559,6 +1904,6 @@ map.on("load", async () => {
   // published and the freshest data, which is what most visitors came for;
   // all-time is one zoom-out away and the containment rule fetches it then.
   await mount(qs.get("archive") || "latest");
-});
+})();
 el("track").focus();
 </script></body></html>

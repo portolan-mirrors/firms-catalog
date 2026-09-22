@@ -471,6 +471,38 @@ export function rampColor(stops, v) {
   return c;
 }
 
+/**
+ * The same colour, lifted off a near-black track.
+ *
+ * The ramp is shared with the map, and it has to be: a colour must mean the
+ * same count in both places. But the two are read against very different
+ * backgrounds. A cell is hundreds of pixels of `#2c3d5a` over a grey basemap
+ * and reads easily; the identical colour as a two-pixel bar over the track's
+ * `#0b0f15` is very nearly invisible, and a quiet month looked like a month
+ * with no data.
+ *
+ * So the bottom of the ramp is lifted to a luminance floor, and only the
+ * bottom: `#3f6d8f` and everything above it already clear the floor and are
+ * returned untouched. Scaling the channels together keeps the hue and the
+ * ordering, so a lifted bar is still recognisably the ramp's lowest class and
+ * still the darkest bar on the chart.
+ */
+const MIN_LUMA = 82;
+const _lifted = new Map();
+export function liftForTrack(hex) {
+  let out = _lifted.get(hex);
+  if (out) return out;
+  const n = parseInt(hex.slice(1), 16);
+  const r = (n >> 16) & 255, g = (n >> 8) & 255, b = n & 255;
+  const luma = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  const k = luma > 0 && luma < MIN_LUMA ? MIN_LUMA / luma : 1;
+  const ch = v => Math.min(255, Math.round(v * k));
+  out = k === 1 ? hex
+      : "#" + [ch(r), ch(g), ch(b)].map(v => v.toString(16).padStart(2, "0")).join("");
+  _lifted.set(hex, out);
+  return out;
+}
+
 const fmtNum = n =>
   n >= 1e6 ? (n / 1e6).toFixed(1) + "M"
   : n >= 1000 ? (n / 1000).toFixed(n >= 10000 ? 0 : 1) + "k"
@@ -817,10 +849,11 @@ export class Timeline {
       // as pixel columns swallow more buckets. Colour is the per-bucket mean,
       // which does not change with zoom, so a colour means the same thing at
       // every span.
-      ctx.fillStyle = rampColor(this.ramp, c.value / (c.i1 - c.i0 + 1));
+      ctx.fillStyle = liftForTrack(rampColor(this.ramp, c.value / (c.i1 - c.i0 + 1)));
       ctx.fillRect(c.x, trackH - h - 1, c.w, h);
     }
 
+    this._paintScale(trackH, max);
     this._paintSelection(trackH);
 
     ctx.strokeStyle = THEME.line;
@@ -921,6 +954,56 @@ export class Timeline {
       ctx.fillRect(x - 2, gy, 1, gh);
       ctx.fillRect(x + 1, gy, 1, gh);
     }
+  }
+
+  /**
+   * The vertical scale: two rules across the track, and what they are worth.
+   *
+   * The bars are normalised to the tallest one in view, which is what makes
+   * the shape of a span readable whatever its magnitude -- and which hides
+   * something important. When a busier year loads in, every bar already on
+   * screen shrinks to make room for the new peak. Without a number anywhere on
+   * the chart that reads as the data having gone away, not as a rescale: the
+   * bars were there, then they were a pixel tall, and nothing said why.
+   *
+   * The peak and its half are enough to read a bar against, and a peak label
+   * going from 38 to 222k is the rescale announcing itself. Drawn over the
+   * bars, because the rule at the peak is exactly where the tallest bar is.
+   */
+  _paintScale(trackH, max) {
+    const {ctx} = this, W = this.width;
+    // Below this the two rules and their labels are on top of each other, and
+    // a crowded axis is worse than none.
+    if (!(max > 0) || trackH < 34) return;
+    const body = trackH - 2;
+    ctx.save();
+    ctx.font = '9px ui-sans-serif,-apple-system,"Segoe UI",sans-serif';
+    ctx.textBaseline = "bottom";
+    for (const frac of [1, 0.5]) {
+      const y = Math.round(trackH - 1 - frac * body) + 0.5;
+      ctx.strokeStyle = frac === 1
+        ? "rgba(230,237,243,.30)" : "rgba(230,237,243,.14)";
+      ctx.setLineDash([2, 3]);
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(0, y);
+      ctx.lineTo(W, y);
+      ctx.stroke();
+      const label = fmtNum(max * frac);
+      const w = ctx.measureText(label).width;
+      // Against the left edge, backed just enough to stay legible over a bar,
+      // and under its rule rather than over it when there is no room above.
+      // The peak's rule sits a pixel and a half from the top, so a label hung
+      // above it was drawn off the canvas: the number that says the most about
+      // a rescale was the one that never appeared.
+      const above = y - 11 >= 0;
+      ctx.setLineDash([]);
+      ctx.fillStyle = "rgba(11,15,21,.82)";
+      ctx.fillRect(2, above ? y - 11 : y, w + 6, 11);
+      ctx.fillStyle = frac === 1 ? THEME.fg : THEME.dim;
+      ctx.fillText(label, 5, above ? y - 1 : y + 10);
+    }
+    ctx.restore();
   }
 
   _paintHover(trackH, cols) {
