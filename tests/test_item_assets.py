@@ -16,15 +16,16 @@ catalog.
 Run: python3 tests/test_item_assets.py
 """
 import json
-import urllib.error
-import urllib.request
+import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 CATALOG = ROOT / "catalog" / "detections"
-# Source Cooperative's CDN answers 403 to the default Python agent, so every
-# request names itself; a rejected client looks exactly like a missing file.
-UA = {"User-Agent": "firms-catalog-tests/1.0"}
+sys.path.insert(0, str(ROOT / "tools"))
+
+from net import force_ipv4, head  # noqa: E402
+
+force_ipv4()
 
 errors: list[str] = []
 
@@ -32,16 +33,6 @@ errors: list[str] = []
 def check(condition: bool, message: str) -> None:
     if not condition:
         errors.append(message)
-
-
-def head(url: str) -> int | None:
-    try:
-        req = urllib.request.Request(url, method="HEAD", headers=UA)
-        return urllib.request.urlopen(req, timeout=30).status
-    except urllib.error.HTTPError as exc:
-        return exc.code
-    except (urllib.error.URLError, OSError):
-        return None
 
 
 items = sorted(CATALOG.glob("year=*/[0-9]*.json"))
@@ -72,10 +63,12 @@ for path in items:
               f"{path}: pmtiles href is {asset.get('href')!r}, not "
               f"'./fire-{year}.pmtiles'; deck.html derives that name")
 
-probe = head("https://data.source.coop/portolan-mirrors/firms-catalog/"
-             "detections/collection.json")
-if probe is None:
-    print("network unavailable; skipping")
+probe, _ = head("https://data.source.coop/portolan-mirrors/firms-catalog/"
+                "detections/collection.json")
+# A string means the request never reached the server, even after retries.
+# A missing network is not a broken catalog; an HTTP answer of any kind is.
+if not isinstance(probe, int):
+    print(f"network unavailable ({probe}); skipping")
     raise SystemExit(0)
 
 checked = 0
@@ -91,9 +84,10 @@ for path in items:
             url = base + href[2:]
         else:
             continue
-        code = head(url)
+        code, _ = head(url)
         checked += 1
-        check(code == 200, f"{path.parent.name}: asset '{name}' -> {href} is HTTP {code}")
+        check(code == 200, f"{path.parent.name}: asset '{name}' -> {href} is "
+              + (f"HTTP {code}" if isinstance(code, int) else f"unreachable ({code})"))
 
 if errors:
     print("\n".join(f"error  {e}" for e in errors))

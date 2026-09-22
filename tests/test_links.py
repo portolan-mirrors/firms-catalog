@@ -25,15 +25,13 @@ same thing without the argument.
 import json
 import os
 import sys
-import urllib.error
-import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "tools"))
 
-from net import force_ipv4  # noqa: E402
+from net import force_ipv4, head  # noqa: E402
 from publish import load_config  # noqa: E402
 
 config = load_config()
@@ -49,11 +47,6 @@ DATA_SUFFIXES = (
     ".parquet", ".pmtiles", ".tif", ".tiff", ".copc.laz", ".laz", ".gpkg",
     ".zarr", ".geojsonl", ".shp", ".zip",
 )
-# Anything but urllib's own: data.source.coop answers Python-urllib/3.x with a
-# 403 on every key, present or missing, which would read as the whole catalog
-# having gone missing at once.
-USER_AGENT = "firms-catalog-link-check"
-TIMEOUT = 30
 
 
 def is_remote(href: str) -> bool:
@@ -141,21 +134,6 @@ for path in documents:
         check_href(path, f"asset {key}", href)
 
 
-def head(url: str) -> tuple[int | str, int | None]:
-    """(status, content length). status is a string when the request failed."""
-    request = urllib.request.Request(
-        url, method="HEAD", headers={"User-Agent": USER_AGENT}
-    )
-    try:
-        with urllib.request.urlopen(request, timeout=TIMEOUT) as response:
-            length = response.headers.get("content-length")
-            return response.status, int(length) if length else None
-    except urllib.error.HTTPError as exc:
-        return exc.code, None
-    except Exception as exc:  # noqa: BLE001 -- reported, not swallowed
-        return f"{type(exc).__name__}: {exc}", None
-
-
 if REMOTE and deferred:
     force_ipv4()
     urls = sorted(deferred)
@@ -172,8 +150,13 @@ if REMOTE and deferred:
             # upload stays accepted on every later run. Zero bytes is the one
             # truncation that is unambiguous.
             errors.append(f"{where} -> {url} is empty")
+        elif isinstance(status, int):
+            errors.append(f"{where} -> {url} returned HTTP {status}")
         else:
-            errors.append(f"{where} -> {url} returned {status}")
+            # Retried already, so this is the network and not the catalog. It
+            # still fails: the run asked for the bytes to be confirmed and they
+            # were not, and a publish gate that shrugs proves nothing.
+            errors.append(f"{where} -> {url} unreachable ({status})")
 
 if deferred and not REMOTE:
     print(
