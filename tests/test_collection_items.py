@@ -110,38 +110,59 @@ import shutil  # noqa: E402
 
 import duckdb  # noqa: E402
 
-with tempfile.TemporaryDirectory() as tmp:
-    stage = Path(tmp) / "stage/detections/year=2026"
-    stage.mkdir(parents=True)
+
+def stage_window(dirpath, start, hours):
+    """A year=2026 tree holding a rolling window and no archive."""
+    part = Path(dirpath) / "detections/year=2026"
+    part.mkdir(parents=True)
     con = duckdb.connect()
     con.execute("INSTALL spatial; LOAD spatial;")
     con.execute(f"""
         COPY (SELECT
-                TIMESTAMP '2026-09-20 00:00:00' + INTERVAL (i) HOUR AS acq_datetime,
-                CAST(TIMESTAMP '2026-09-20 00:00:00' + INTERVAL (i) HOUR AS DATE) AS acq_date,
+                TIMESTAMP '{start}' + INTERVAL (i) HOUR AS acq_datetime,
+                CAST(TIMESTAMP '{start}' + INTERVAL (i) HOUR AS DATE) AS acq_date,
                 'VIIRS' AS sensor, 1.0 AS frp,
                 ST_Point((i % 180) - 90, (i % 90) - 45) AS geometry,
                 2026 AS year
-              FROM range(72) t(i))
-        TO '{stage / "live.parquet"}' (FORMAT parquet, COMPRESSION zstd)""")
+              FROM range({hours}) t(i))
+        TO '{part / "live.parquet"}' (FORMAT parquet, COMPRESSION zstd)""")
+    return part.parent
 
-    cat = Path(tmp) / "cat"
-    shutil.copytree(ROOT / "catalog" / "detections", cat)
+
+def build(data, out_parent):
     r = subprocess.run(
         [sys.executable, str(ROOT / "tools" / "make_collection.py"),
-         "--data", str(stage.parent), "--out", str(cat / "collection.json")],
+         "--data", str(data), "--out", str(out_parent / "collection.json")],
         capture_output=True, text=True)
-    check(r.returncode == 0,
-          f"a window-only staging tree builds: rc={r.returncode} "
-          f"{r.stderr.strip()[-200:]}")
-    if r.returncode == 0:
-        rebuilt = json.loads((cat / "collection.json").read_text())
-        # Counted past the archive, not from zero and not twice: the item says
-        # where the published year ends and only the rows after that are new.
-        check(rebuilt["table:row_count"] == doc["table:row_count"] + 72,
-              f"the window is counted past the items: "
-              f"{doc['table:row_count']} + 72 != {rebuilt['table:row_count']}")
-        check(sorted(item_links(rebuilt)) == sorted(links),
+    return r, (json.loads((out_parent / "collection.json").read_text())
+               if r.returncode == 0 else None)
+
+
+with tempfile.TemporaryDirectory() as tmp:
+    tmp = Path(tmp)
+    # Two windows, one side of the published end each. The count is compared
+    # between the two runs and not against the collection on disk: the hourly
+    # refresh regenerates that file in the step before the gates, so by the
+    # time this runs it already carries a counted window of its own.
+    after = stage_window(tmp / "after", "2026-09-20 00:00:00", 72)
+    before = stage_window(tmp / "before", "2026-01-01 00:00:00", 72)
+    cat = tmp / "cat"
+    shutil.copytree(ROOT / "catalog" / "detections", cat)
+
+    r_after, doc_after = build(after, cat)
+    check(r_after.returncode == 0,
+          f"a window-only staging tree builds: rc={r_after.returncode} "
+          f"{r_after.stderr.strip()[-200:]}")
+    r_before, doc_before = build(before, cat)
+
+    if doc_after and doc_before:
+        # Counted past the archive, not from zero and not twice: a window the
+        # items already cover adds nothing, and one past them adds its rows.
+        delta = doc_after["table:row_count"] - doc_before["table:row_count"]
+        check(delta == 72,
+              f"the window is counted past the items, and only past them: "
+              f"expected 72 new rows, got {delta}")
+        check(sorted(item_links(doc_after)) == sorted(links),
               "a window-only rebuild keeps every item link")
 
 if errors:
