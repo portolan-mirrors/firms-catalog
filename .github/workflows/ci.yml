@@ -27,8 +27,11 @@ jobs:
       # stac-check stays unpinned on purpose. The stac-check exemption in
       # docs/conformance.md expires when the upstream crash stops. That only
       # happens if CI takes each new release.
+      # duckdb is unpinned, as it is in every other workflow here. Three gates
+      # import it to build their own fixtures in a temp directory; without it
+      # they do not skip, they fail on the import.
       - name: Install the validators
-        run: python -m pip install 'rashid>=0.1.5,<0.2.0' stac-check
+        run: python -m pip install 'rashid>=0.1.5,<0.2.0' stac-check duckdb
 
       - name: Lint the tooling
         run: |
