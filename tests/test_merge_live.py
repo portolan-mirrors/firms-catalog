@@ -35,8 +35,21 @@ def run(data, year, *extra):
         capture_output=True, text=True)
 
 
+# A failed merge can leave no archive at all, since the rebuild clears the
+# partition before it writes. Reading one that is not there raises an
+# IOException out of duckdb and takes the whole run down, hiding the stderr
+# every check below carefully captures. Report the absence as a value instead.
 def rows(con, p):
+    if not Path(p).exists():
+        return -1
     return con.execute(f"SELECT count(*) FROM read_parquet('{p}')").fetchone()[0]
+
+
+def high(con, p):
+    if not Path(p).exists():
+        return "no archive"
+    return str(con.execute(
+        f"SELECT max(acq_datetime) FROM read_parquet('{p}')").fetchone()[0])
 
 
 def main() -> int:
@@ -60,10 +73,8 @@ def main() -> int:
         # 6 archive rows before the window, plus the window's 18.
         check("overlapping window merges without duplicates", r.returncode == 0 and n == 24,
               f"rc={r.returncode} rows={n} {r.stderr[-200:]}")
-        hi = con.execute(
-            f"SELECT max(acq_datetime) FROM read_parquet('{d}/year=2026/detections.parquet')"
-        ).fetchone()[0]
-        check("merged archive reaches the window's end", str(hi) == "2026-09-01 23:00:00", str(hi))
+        hi = high(con, d / "year=2026/detections.parquet")
+        check("merged archive reaches the window's end", hi == "2026-09-01 23:00:00", hi)
 
     with tempfile.TemporaryDirectory() as td:
         # Disjoint: the hole this tool exists to catch.
@@ -116,12 +127,10 @@ def main() -> int:
         write(con, d / "year=2026/live.parquet", "2026-12-28 00:00:00", 96)
         write(con, d / "year=2027/live.parquet", "2027-01-01 00:00:00", 48)
         r26, r27 = run(d, 2026), run(d, 2027)
-        hi26 = con.execute(
-            f"SELECT max(acq_datetime) FROM read_parquet('{d}/year=2026/detections.parquet')"
-        ).fetchone()[0]
+        hi26 = high(con, d / "year=2026/detections.parquet")
         check("across the turn the old year extends to its end",
-              r26.returncode == 0 and str(hi26) == "2026-12-31 23:00:00",
-              f"rc={r26.returncode} hi={hi26}")
+              r26.returncode == 0 and hi26 == "2026-12-31 23:00:00",
+              f"rc={r26.returncode} hi={hi26} {r26.stderr[-200:]}")
         check("across the turn the new year is seeded",
               r27.returncode == 0 and rows(con, d / "year=2027/detections.parquet") == 48,
               f"rc={r27.returncode} {r27.stderr[-200:]}")

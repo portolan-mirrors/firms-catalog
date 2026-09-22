@@ -30,8 +30,17 @@ jobs:
       # duckdb is unpinned, as it is in every other workflow here. Three gates
       # import it to build their own fixtures in a temp directory; without it
       # they do not skip, they fail on the import.
+      #
+      # gpio comes from git main for the same reason the data workflows take
+      # it from there. Two of those gates reach it -- one calls it to
+      # aggregate, one through firms_build.py's `gpio sort hilbert` -- and a
+      # missing binary fails them mid-rebuild with the partition already
+      # cleared. tippecanoe and the pmtiles CLI are not needed here: nothing
+      # in the gates builds a tileset.
       - name: Install the validators
-        run: python -m pip install 'rashid>=0.1.5,<0.2.0' stac-check duckdb
+        run: |
+          python -m pip install 'rashid>=0.1.5,<0.2.0' stac-check duckdb \
+            'git+https://github.com/geoparquet/geoparquet-io.git@main'
 
       - name: Lint the tooling
         run: |
