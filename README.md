@@ -87,6 +87,8 @@ anything above 5.
 ```bash
 python3 -m venv .venv && .venv/bin/pip install 'rashid>=0.1.8,<0.2.0'
 python3 tests/run_all.py          # gates: conformance, links, STAC validity
+node tests/run_js.mjs             # gates: the explorer's modules
+python3 tests/test_links.py --remote   # also resolve the data at the bucket
 python3 tools/publish.py          # dry run
 python3 tools/publish.py --confirm
 ```

@@ -501,8 +501,22 @@ async function mount(id, carry) {
   S.bandBuckets = new Map();
   S.lastLevel = null;
 
-  // Mount the axis with no values: the counts are viewport-dependent and are
-  // not known until tiles have loaded. The bars fill in as tiles arrive.
+  // Mount the axis with the bars it already had, not with none.
+  //
+  // The counts are viewport-dependent and a new archive's tiles have not
+  // arrived, so this used to mount empty and let the bars fill in as tiles
+  // came. That reads as the timeline switching off and on again every time the
+  // selection crosses New Year: the whole histogram blanks, then the debounce
+  // waits its 180 ms, then it comes back looking much as it did. Nothing about
+  // the picture was wrong -- most of it does not even belong to the archive
+  // being swapped, since the bars are merged from every mounted archive's
+  // cache -- so blanking it was throwing away a correct answer to redraw it.
+  //
+  // Carrying them over is safe because a bucket is keyed by its date and not
+  // by its position: seriesFromBuckets resolves each key through the new axis
+  // and drops what does not land on it. Across a unit change no daily key
+  // resolves and the result is the empty mount this always did. The recompute
+  // still runs a moment later and corrects whatever the switch really changed.
   //
   // The axis is widened past this archive when a neighbour is known to exist.
   // Landing on the rolling window would otherwise give an eight-day timeline,
@@ -522,7 +536,7 @@ async function mount(id, carry) {
   // it is not published; only the settled one is.
   _mounting = true;
   try {
-    tl.setSource(extent, {});
+    tl.setSource(extent, _lastBuckets || {});
     tl.setGaps(gapsFor(extent));
     // Before applyCarry, not after: applyCarry emits, and the emit writes the
     // selection into the date inputs, which have to be the right type first.
@@ -1475,6 +1489,7 @@ function computeHistogram() {
   for (const k in buckets) if (buckets[k] > max) max = buckets[k];
   _histoDirty = false;
   tl.ramp = timelineRamp(max);
+  _lastBuckets = buckets;
   tl.setValues(buckets);
   const ms = performance.now() - t0;
   el("ms").textContent = `${ms.toFixed(0)} ms`;
@@ -1488,6 +1503,12 @@ function computeHistogram() {
 // tiles can change the answer, so only those mark it dirty.
 let _histoPending = false;
 let _histoDirty = true;
+/**
+ * The bars as last computed, so a mount can open with them instead of blank.
+ *
+ * Keyed by date, so they survive being re-resolved against a different axis.
+ */
+let _lastBuckets = null;
 function scheduleHistogram() {
   _histoDirty = true;
   if (_histoPending) return;

@@ -112,8 +112,6 @@ jobs:
             --out catalog/detections/collection.json
 
       - name: Validate before uploading anything
-        env:
-          CI_LIGHT: "1"
         run: python3 tests/run_all.py
 
       # Source Cooperative's bucket is reached by assuming a role it has
@@ -132,3 +130,9 @@ jobs:
 
       - name: Publish catalog metadata
         run: python3 tools/publish.py --confirm
+
+      # The gate above passes on hrefs alone: data bytes are never beside the
+      # JSON, so nothing offline can tell a published archive from one that
+      # never uploaded. Now that it has, resolve every one against the bucket.
+      - name: Verify the published data resolves
+        run: python3 tests/test_links.py --remote

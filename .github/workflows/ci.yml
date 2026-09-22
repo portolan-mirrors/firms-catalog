@@ -35,10 +35,15 @@ jobs:
           python -m pip install pyflakes
           pyflakes tools/*.py tests/*.py
 
-      # CI_LIGHT exempts asset hrefs with a data suffix from the link check.
-      # The checkout holds the metadata and not the bytes. Structural links
-      # and every non-data asset still resolve. Leave it unset locally.
       - name: Catalog gates
-        env:
-          CI_LIGHT: "1"
         run: python3 tests/run_all.py
+
+      # The explorer has no build step and no framework, so its suites are
+      # files node runs directly. Nothing installs, which is why this is a
+      # step here rather than a job: it costs the setup action and seconds.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Explorer gates
+        run: node tests/run_js.mjs

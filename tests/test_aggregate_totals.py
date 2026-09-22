@@ -11,7 +11,6 @@ add the cells up and compare.
 Since aggregates now live beside the archive, the same glob would also have
 swept them into their own input.
 """
-import re
 import subprocess
 import sys
 import tempfile
