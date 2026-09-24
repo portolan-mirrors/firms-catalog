@@ -13,6 +13,13 @@ name: consolidate-year
 # Daily, against a seven-day window, so six days of margin have to be missed
 # before anything is lost. merge_live.py refuses outright if the overlap has
 # already closed rather than quietly writing across the hole.
+#
+# That margin was missed once: refresh-nrt failed 2026-09-16..21, the frozen
+# window read as "nothing to do" here every day, and 42 hours aged out of the
+# feed. So before merging, fill_gaps.py checks every hour of the year up to
+# now against archive + window, refetches whatever neither covers from the
+# FIRMS area API, and fails the run if it cannot close the hole. A stalled
+# refresh now costs API transactions, not data.
 
 on:
   schedule:
@@ -108,6 +115,21 @@ jobs:
                 echo "  year=$Y/$f not published"
               fi
             done
+          done
+
+      # Before the merge, so a window that no longer reaches the archive is
+      # bridged rather than refused. Whole days touched by a hole are
+      # refetched and replace the archive's copy of them.
+      - name: Refill any hours the published data does not cover
+        env:
+          YEARS: ${{ steps.y.outputs.years }}
+          FIRMS_MAP_KEY: ${{ secrets.FIRMS_MAP_KEY }}
+        run: |
+          set -euo pipefail
+          for Y in $YEARS; do
+            echo "=== $Y ==="
+            python3 tools/fill_gaps.py --data ./staging/publish/detections \
+              --year "$Y" --memory 6GB
           done
 
       - name: Fold each window into its year

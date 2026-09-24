@@ -111,7 +111,8 @@ def main() -> int:
     if live_lo > arc_hi:
         msg = (f"the window starts {live_lo} but the archive ends {arc_hi}: "
                f"detections in between are in no published file. Backfill that "
-               f"range before merging, or pass --allow-gap to merge anyway.")
+               f"range first (tools/fill_gaps.py), or pass --allow-gap to merge "
+               f"anyway.")
         if not a.allow_gap:
             print(f"gap: {msg}", file=sys.stderr)
             return 1

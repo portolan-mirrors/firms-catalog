@@ -69,10 +69,14 @@ def build_year(con, chunks: Path, year: int, outdir: Path, verbose: bool,
 
     with tempfile.TemporaryDirectory() as td:
         staged = Path(td) / "rows.parquet"
+        # Parts staged inside year=<Y>/ (merge_live, fill_gaps) made DuckDB
+        # read the path key as a column, and 2026's archive shipped with a
+        # `year` no other year has. Partition inference is off, and a `year`
+        # already written into an archive is dropped on the way through.
         con.execute(f"""
             COPY (
-              SELECT * EXCLUDE (geometry), geometry
-              FROM read_parquet([{lst}], union_by_name=true)
+              SELECT COLUMNS(c -> c NOT IN ('geometry', 'year')), geometry
+              FROM read_parquet([{lst}], union_by_name=true, hive_partitioning=false)
               WHERE year(acq_date) = {year}
             ) TO '{staged}'
               (FORMAT PARQUET, COMPRESSION zstd, ROW_GROUP_SIZE {ROW_GROUP})
