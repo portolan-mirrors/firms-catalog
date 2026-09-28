@@ -1,5 +1,6 @@
 <!doctype html><html><head><meta charset="utf-8">
-<title>FIRMS explorer · deck.gl</title>
+<title>FIRMS explorer</title>
+<meta name="description" content="Every NASA FIRMS active fire detection since November 2000, on one map you can scrub through in time.">
 <link rel="icon" href="favicon.ico" sizes="any">
 <link rel="icon" type="image/png" sizes="32x32" href="favicon-32x32.png">
 <link rel="icon" type="image/png" sizes="16x16" href="favicon-16x16.png">
@@ -56,7 +57,7 @@
  .row b{color:var(--fg);font-variant-numeric:tabular-nums;font-weight:600}
  .spacer{flex:1}
  .note{font-size:10px;color:var(--warn);line-height:1.35;padding:0 12px 8px;display:none}
- .over .note{padding:6px 0 0;display:block}
+ .over .note{padding:6px 0 0;display:block;color:var(--dim)}
  /* In the toolbar, in the gap between the controls and the readouts. It was
     over the map, which read as an alert for something that is routine. The
     row already reserves this space, so an appearing message shifts nothing:
@@ -107,24 +108,82 @@
   .auto{display:inline-flex;align-items:center;gap:4px;color:var(--dim);
         font-size:11px;cursor:pointer;user-select:none}
   .auto input{accent-color:var(--acc);cursor:pointer;margin:0}
-  .tag{font-size:9px;color:var(--panel);background:var(--acc);border-radius:4px;
-       padding:1px 5px;margin-left:6px;vertical-align:middle;font-weight:600}
+  /* The about box, which the header toggles. The panel widens while it is
+     open: 236px is right for a legend and too narrow for prose. */
+  .link{background:none;border:0;color:var(--acc);font:inherit;font-size:10.5px;
+        cursor:pointer;padding:0;margin-top:5px;text-decoration:underline}
+  .over.wide{width:330px}
+  /* A hidden element is still :last-child, so the legend would keep a divider
+     with nothing under it while the box is shut. */
+  .sec:has(+ .about[hidden]){border-bottom:0}
+  .about p{margin:0 0 9px;font-size:11px;line-height:1.55;color:var(--dim)}
+  .about p:last-child{margin-bottom:0}
+  .about .grp{margin:12px 0 5px}
+  .about a{color:var(--acc)}
 </style></head><body>
 
 <div class="stage">
   <div id="map"></div>
   <div class="over">
-    <div class="hd"><h1>FIRMS explorer<span class="tag">deck.gl</span></h1>
-      <div class="sub" id="hdsub">loading…</div></div>
+    <div class="hd"><h1>FIRMS explorer</h1>
+      <div class="sub" id="hdsub">loading…</div>
+      <button type="button" class="link" id="aboutbtn"
+        aria-expanded="false" aria-controls="about">About this map</button></div>
     <div class="sec">
       <div class="grp" id="lgtitle">Detections in selection</div>
       <div class="legend" id="lg" style="margin-top:7px"></div>
       <div class="note" id="lgnote"></div>
     </div>
-    <div class="sec">
-      <div class="row"><span>zoom</span><b id="z">–</b></div>
-      <div class="row"><span id="nlabel">cells in view</span><b id="ncells">–</b></div>
-      <div class="row"><span>histogram</span><b id="ms">–</b></div>
+    <div class="sec about" id="about" hidden>
+      <p>Every active fire detection NASA has published since November 2000 —
+      about 631 million of them, from MODIS on Terra and Aqua (1&nbsp;km) and
+      VIIRS on Suomi-NPP, NOAA-20 and NOAA-21 (375&nbsp;m). New detections are
+      appended hourly, within a few hours of the satellite pass.</p>
+
+      <div class="grp">Reading the map</div>
+      <p>Zoomed out, the map draws <b>cells</b> rather than detections: the
+      detections are aggregated onto an <a href="https://a5geo.org" target="_blank" rel="noopener">A5</a>
+      grid, and each cell is coloured by how many of them fall inside it
+      <i>and</i> inside the time selection — so the colours change as you move
+      the selection. The grid gets finer as you zoom in, and far enough in the
+      individual detections appear, coloured by fire radiative power. Click a
+      cell for its numbers.</p>
+
+      <div class="grp">Reading the timeline</div>
+      <p>The bars total the detections currently in view, one bar per bucket.
+      Drag the highlighted band to move the selection, or its edges to resize
+      it. <b>+</b> and <b>−</b> zoom the time axis in and out, <b>Fit</b>
+      frames the selection, and <b>Span</b> jumps to a fixed window. Zoom in
+      far enough and the monthly all-time archive is swapped for that year's
+      daily one automatically; untick <b>auto</b> to stay put, or pick an
+      archive yourself.</p>
+
+      <div class="grp">The data</div>
+      <p>Source: <a href="https://firms.modaps.eosdis.nasa.gov/" target="_blank" rel="noopener">NASA
+      FIRMS</a>, the Fire Information for Resource Management System. We
+      acknowledge the use of data and imagery from FIRMS, part of NASA's Earth
+      Science Data and Information System (ESDIS). Published under CC0-1.0;
+      NASA is the producer, and any mistake in what you see here is this
+      mirror's, not theirs.</p>
+      <p>The map reads a <a href="https://www.portolan-sdi.org" target="_blank" rel="noopener">Portolan</a>
+      catalog — a STAC catalog of cloud-native files with no server behind it,
+      hosted on <a
+      href="https://source.coop/portolan-mirrors/firms-catalog" target="_blank" rel="noopener">Source
+      Cooperative</a>. Browse it in the <a
+      href="https://browser.portolan-sdi.org/#/external/data.source.coop/portolan-mirrors/firms-catalog/catalog.json" target="_blank" rel="noopener">Portolan
+      browser</a>, query the GeoParquet directly from the <a
+      href="https://data.source.coop/portolan-mirrors/firms-catalog/catalog.json" target="_blank" rel="noopener">STAC
+      root</a>, or read how it is built in the <a
+      href="https://github.com/portolan-mirrors/firms-catalog" target="_blank" rel="noopener">catalog
+      repository</a>.</p>
+
+      <div class="grp">Built with</div>
+      <p><a href="https://deck.gl" target="_blank" rel="noopener">deck.gl</a> ·
+      <a href="https://maplibre.org/maplibre-gl-js/docs/" target="_blank" rel="noopener">MapLibre GL JS</a> ·
+      <a href="https://docs.protomaps.com/pmtiles/" target="_blank" rel="noopener">PMTiles</a> ·
+      <a href="https://a5geo.org" target="_blank" rel="noopener">A5</a> · basemap by
+      <a href="https://protomaps.com" target="_blank" rel="noopener">Protomaps</a> from
+      <a href="https://openstreetmap.org" target="_blank" rel="noopener">OpenStreetMap</a>.</p>
     </div>
   </div>
   <div id="pop"><span class="x" id="popx">✕</span>
@@ -155,7 +214,6 @@
       <input id="selto" class="dt" aria-label="Selection end">
     </span>
     <span class="kv">view <b id="view">–</b></span>
-    <span class="kv">buckets <b id="nb">–</b></span>
   </div>
   <div class="note" id="note"></div>
   <canvas id="track" tabindex="0"
@@ -170,8 +228,8 @@
 // expression that MapLibre re-evaluates per cell per frame, and had to
 // throttle the map to stay usable. Here the per-cell count is JavaScript that
 // rewrites one colour buffer, and the raw points are filtered on the GPU.
-import {Timeline, makeAxis, formatKey, keyToISO, isoToKey, COUNT_RAMP}
-  from "./timeline.js";
+import {Timeline, makeAxis, formatKey, indexKey, isoToKey, keyIndex, keyToISO,
+        COUNT_RAMP} from "./timeline.js";
 import {bandAt, chooseArchive, keyDayRange, parseJSONish, pointsMinZoom,
         pyramid, shippedStops, timelineFromMetadata} from "./archives.js";
 import {axisFor, bestCover, covers, gapsIn, ownerOf, planMounts} from "./mounted.js";
@@ -213,7 +271,6 @@ const ARCHIVES = {
 // in ascending numeric order however they were inserted, so Object.keys()
 // would put 2000 above the all-time archive.
 const ORDER = ["alltime", "latest"];
-const UNIT_ADVERB = {day: "daily", month: "monthly"};
 
 // Point the app at an archive that is not in the catalog yet:
 //
@@ -312,8 +369,18 @@ function listYears() {
 
 // ------------------------------------------------------------------- the map
 
+// MapLibre's unnamed hash owns the WHOLE fragment: every moveend rewrites it
+// from the camera alone, so a timeline parameter parked beside it would be
+// erased on the first pan. Named, it rewrites only its own `map=` and leaves
+// the rest -- which is what lets a link carry the time as well as the place.
+//
+// Links made before it had a name used `#zoom/lat/lng`. Give them the name
+// rather than drop them on the floor.
+if (/^#-?\d+(\.\d+)?\//.test(location.hash))
+  history.replaceState(history.state, "", "#map=" + location.hash.slice(1));
+
 const map = new maplibregl.Map({
-  container: "map", hash: true,
+  container: "map", hash: "map",
   style: {
     version: 8,
     glyphs: "https://protomaps.github.io/basemaps-assets/fonts/{fontstack}/{range}.pbf",
@@ -347,17 +414,74 @@ map.addControl(overlay);
  * the tile from the archive, and the bytes go through the same MVT parser
  * with the same options, so the layer sees exactly what it expects.
  */
-function pmtilesFetch(pm) {
+/**
+ * Tile bytes kept past the layer that paid for them.
+ *
+ * Crossing a unit boundary tears the archive's deck layer down -- a monthly
+ * layer cannot feed a daily timeline, so buildLayers does not give it one --
+ * and deck's own tile cache goes with the layer. Coming back fetched every
+ * tile again, which is why the monthly overview reloaded from nothing every
+ * time while the daily years, whose layers survive alongside each other,
+ * felt instant.
+ *
+ * Nothing below us holds them either: data.source.coop sends no
+ * `cache-control` at all, and these are Range requests besides, so the
+ * browser will not reuse them. A world view of the all-time archive is twelve
+ * z2 tiles at roughly a megabyte each -- minutes, on the connections this is
+ * for.
+ *
+ * What is kept is the decompressed MVT bytes rather than the parsed features,
+ * which are several times larger in memory; re-parsing costs 37 ms in a
+ * worker against seconds on the wire. The budget holds two archives' world
+ * views (about 25 MB) with room to pan, and everything past it goes by
+ * least-recently-used.
+ */
+const TILE_BYTES_MAX = 64 << 20;
+const _tileBytes = new Map();
+let _tileBytesUsed = 0;
+
+function forgetTile(key) {
+  const had = _tileBytes.get(key);
+  if (had === undefined) return;
+  _tileBytes.delete(key);
+  _tileBytesUsed -= had.byteLength;
+}
+
+function rememberTile(key, data) {
+  if (!data || !data.byteLength || data.byteLength > TILE_BYTES_MAX) return;
+  forgetTile(key);                 // re-insert, so a hit moves to the newest end
+  _tileBytes.set(key, data);
+  _tileBytesUsed += data.byteLength;
+  // A Map iterates in insertion order, so the first key is the oldest. With
+  // the re-insert above, that makes this an LRU rather than a queue.
+  for (const k of _tileBytes.keys()) {
+    if (_tileBytesUsed <= TILE_BYTES_MAX) break;
+    forgetTile(k);
+  }
+}
+
+function pmtilesFetch(pm, id) {
   // Parsed in a worker, as deck.gl's own tile path does. A z6 aggregate tile
   // takes 37 ms to parse and a band edge lands a dozen at once, which on the
   // main thread is a visible hitch in the middle of a zoom.
   const MVT = loaders.MVTWorkerLoader;
   return async (url, ctx) => {
-    const [z, x, y] = url.split("/").map(Number);
-    const r = await pm.getZxy(z, x, y, ctx.signal);
-    if (!r) return null;    // no tile here: an empty tile, not an error
+    const key = id + "|" + url;
+    let data = _tileBytes.get(key);
+    if (data === undefined) {
+      const [z, x, y] = url.split("/").map(Number);
+      const r = await pm.getZxy(z, x, y, ctx.signal);
+      if (!r) return null;  // no tile here: an empty tile, not an error
+      data = r.data;
+    }
+    // The cache keeps the pristine buffer and the parser gets a copy, because
+    // a worker parse TRANSFERS what it is handed: parsing the cached buffer
+    // detaches it, and the entry becomes a zero-length hit that draws nothing.
+    // A memcpy per tile is nothing against the request it saves.
+    rememberTile(key, data);
     const lo = ctx.loadOptions || {};
-    return loaders.parse(r.data, MVT, {...lo, mvt: {...MVT.options.mvt, ...lo.mvt}});
+    return loaders.parse(data.slice(0), MVT,
+                         {...lo, mvt: {...MVT.options.mvt, ...lo.mvt}});
   };
 }
 
@@ -425,8 +549,6 @@ async function mount(id, carry) {
     renderArchiveControl();
     console.warn("archive unavailable: " + arc.url, e);
     el("hdsub").textContent = arc.label + " · archive unavailable";
-    el("ncells").textContent = "0";
-    el("ms").textContent = "–";
     return;
   }
   // A slim tileset carries no monthly columns and so declares no axis; the
@@ -475,7 +597,7 @@ async function mount(id, carry) {
   S.archiveBuckets = makeAxis(read.meta).count;
   if (!_caches.has(id)) _caches.set(id, new TileCache(S.axis));
   S.tiles = _caches.get(id);
-  S.fetch = splitFetch(read.pm);
+  S.fetch = splitFetch(read.pm, id);
   S.hasCum = null;
   S.bandBuckets = new Map();
   S.lastLevel = null;
@@ -527,9 +649,6 @@ async function mount(id, carry) {
 
   if (id === "alltime") openStats();
 
-  el("nb").textContent =
-    `${S.axis.count} ${S.axis.unit}${S.axis.count === 1 ? "" : "s"}`;
-  el("z").textContent = map.getZoom().toFixed(1);
   el("presets").innerHTML = (arc.presets || [["all", null]])
     .map(([lbl, n]) => `<button data-n="${n == null ? "" : n}">${lbl}</button>`)
     .join("");
@@ -603,8 +722,7 @@ function neighbourExtents(unit) {
 
 function showNotes(arc, read) {
   el("hdsub").textContent =
-    `${formatKey(S.axis.min, S.axis.unit)} → ${formatKey(S.axis.max, S.axis.unit)} · ` +
-    `${UNIT_ADVERB[S.axis.unit] || S.axis.unit} buckets`;
+    `${formatKey(S.axis.min, S.axis.unit)} → ${formatKey(S.axis.max, S.axis.unit)}`;
   const msgs = [];
   if (!read.declared)
     msgs.push(`${arc.label} declares no firms:timeline; the axis was ` +
@@ -787,8 +905,8 @@ function frpColor(v) {
  * arrays deck.gl sees as `data` keep their identity across selection changes
  * and only the colour attribute is rebuilt.
  */
-function splitFetch(pm) {
-  const fetchTile = pmtilesFetch(pm);
+function splitFetch(pm, id) {
+  const fetchTile = pmtilesFetch(pm, id);
   return async (url, ctx) => {
     const feats = await fetchTile(url, ctx);
     if (!feats) return null;
@@ -1160,7 +1278,7 @@ function buildLayers() {
     layers.push(new deck.MVTLayer({
       id: "load-" + id,
       data: "{z}/{x}/{y}",
-      fetch: splitFetch(read.pm),
+      fetch: splitFetch(read.pm, id),
       binary: false,
       minZoom: 0, maxZoom: read.maxZoom ?? S.maxZoom,
       tileSize: DECK_TILE_SIZE,
@@ -1374,14 +1492,14 @@ function applyNow() {
   const band = currentBand();
   S.lastLevel = band ? band.level : null;
   const plan = statsDriven(band) ? plans().stats : plans().tiles;
-  const {stops, scale} = stopsFor(band, plan.nsel);
-  renderLegend(stops, scale, plan.nsel);
+  const {stops} = stopsFor(band, plan.nsel);
+  renderLegend(stops);
 }
 
 const fmt = n => n >= 1e6 ? (n / 1e6).toFixed(1) + "M"
   : n >= 1000 ? (n / 1000).toFixed(n >= 10000 ? 0 : 1) + "k" : String(n);
 
-function renderLegend(stops, scale, nsel) {
+function renderLegend(stops) {
   const band = currentBand();
   const points = band && band.layer === PT_LAYER;
   if (points) { stops = FRP_RAMP; }
@@ -1395,17 +1513,12 @@ function renderLegend(stops, scale, nsel) {
     !band ? "Detections"
     : points ? "Fire radiative power · MW"
     : `Detections · r${band.level} cells`;
-  const n = el("lgnote");
-  if (points) {
-    n.textContent = "Individual detections, coloured by radiative power.";
-  } else if (!S.breaks) {
-    n.textContent = "This archive ships no firms:breaks; the built-in ramp is used.";
-  } else if (scale === 1) {
-    n.textContent = "Shipped data breaks, whole record.";
-  } else {
-    n.textContent = `Shipped data breaks scaled to the ${nsel} of ` +
-      `${S.archiveBuckets || S.axis.declaredBuckets} buckets selected.`;
-  }
+  // The classes themselves are the archive's, rescaled to the selection by
+  // stopsFor; how that is done is a build detail and used to be spelled out
+  // here. What is worth saying is what a swatch counts, which changes.
+  el("lgnote").textContent = points
+    ? "Individual detections, coloured by radiative power."
+    : "Detections in the selected time range, per cell.";
 }
 
 // ------------------------------------------------------------ the histogram
@@ -1444,18 +1557,16 @@ function computeHistogram() {
   const t0 = performance.now();
   const view = viewBox();
   const band = currentBand();
-  let buckets, n, label, mode;
+  let buckets, n, mode;
   if (inPoints()) {
     const h = S.tiles.pointHistogram(...zoomRange(band), view);
-    buckets = h.buckets; n = h.points; label = "points in view"; mode = "points";
+    buckets = h.buckets; n = h.points; mode = "points";
   } else if (statsDriven(band)) {
     const h = STATS.histogram(view.w, view.s, view.e, view.n, lngOverlaps);
     buckets = h.buckets; n = h.cells; mode = "stats";
-    label = STATS.pending
-      ? `cells in view · ${STATS.pending} chunk(s) loading` : "cells in view";
   } else {
     const h = S.tiles.histogram(...zoomRange(band), view);
-    buckets = h.buckets; n = h.cells; label = "cells in view"; mode = "tiles";
+    buckets = h.buckets; n = h.cells; mode = "tiles";
     // Fold in the archives that are loaded but not drawing. Each bucket is
     // taken from exactly one of them -- whichever owns it -- so a day the
     // rolling window and the year both hold is counted once, from the window,
@@ -1470,9 +1581,7 @@ function computeHistogram() {
   _lastBuckets = buckets;
   tl.setValues(buckets);
   const ms = performance.now() - t0;
-  el("ms").textContent = `${ms.toFixed(0)} ms`;
-  el("ncells").textContent = n.toLocaleString();
-  el("nlabel").textContent = label;
+  // Still published for the console and the tests, just not on screen.
   window._lastHistogram = {ms, cells: n, mode,
                            total: Object.values(buckets).reduce((a, x) => a + x, 0)};
 }
@@ -1495,11 +1604,11 @@ function scheduleHistogram() {
 }
 // A handle for tests and the console. Read-only by convention.
 window.__explorer = {get map() { return map; }, get tl() { return tl; },
-                     get state() { return S; }, get overlay() { return overlay; }};
+                     get state() { return S; }, get overlay() { return overlay; },
+                     get tileBytes() { return _tileBytesUsed; }};
 
 map.on("moveend", scheduleHistogram);
 map.on("move", () => {
-  el("z").textContent = map.getZoom().toFixed(1);
   // Crossing a band boundary changes the cells, the breaks that describe
   // them, and the legend. The tiles carry their own band, so only the legend
   // and the stats/tiles decision need the repaint.
@@ -1516,6 +1625,56 @@ map.on("move", () => {
   // precisely the silence the message exists to fill.
   tileProgress();
 });
+
+// ------------------------------------------------------ the timeline in a link
+
+/**
+ * The timeline's half of the fragment: `view=` is what the track shows and
+ * `sel=` is what is selected, both as a pair of YYYYMMDD day keys.
+ *
+ * Days on both, whatever unit the archive in hand counts in. That is the
+ * shape a carry already uses, so a link made on a daily axis opens correctly
+ * on a monthly one and restoring it is applyCarry's ordinary job. It also
+ * means the link survives the archive being swapped underneath it, which is
+ * the one thing the viewer does on its own.
+ */
+const HASH_RANGE = /^(\d{8})-(\d{8})$/;
+
+function hashParams() {
+  const out = new Map();
+  for (const part of location.hash.slice(1).split("&")) {
+    if (!part) continue;
+    const i = part.indexOf("=");
+    out.set(i < 0 ? part : part.slice(0, i), i < 0 ? "" : part.slice(i + 1));
+  }
+  return out;
+}
+
+/** One `name=YYYYMMDD-YYYYMMDD` parameter, or null if it is absent or junk. */
+function hashRange(name) {
+  const m = HASH_RANGE.exec(hashParams().get(name) || "");
+  return m && m[1] <= m[2] ? [m[1], m[2]] : null;
+}
+
+// replaceState, not `location.hash =`: assigning fires a hashchange, and
+// MapLibre answers a hashchange by jumping the camera to where it already is.
+// Throttled because a drag emits continuously and the URL only has to be
+// right once the hand stops.
+let _hashTimer = null;
+function writeHash() {
+  if (_hashTimer) return;
+  _hashTimer = setTimeout(() => {
+    _hashTimer = null;
+    const c = currentCarry();
+    if (!c) return;
+    const p = hashParams();
+    p.set("view", c.view.join("-"));
+    p.set("sel", c.sel.join("-"));
+    const frag = [...p].map(([k, v]) => v === "" ? k : `${k}=${v}`).join("&");
+    history.replaceState(history.state, "",
+                         `${location.pathname}${location.search}#${frag}`);
+  }, 250);
+}
 
 // -------------------------------------------------------------- the timeline
 
@@ -1542,6 +1701,7 @@ function onTimeline(e) {
   el("view").textContent = d && S.axis
     ? `${formatKey(d.from, S.axis.unit)} → ${formatKey(d.to, S.axis.unit)}` : "–";
   updateFitsHint(d);
+  writeHash();
   considerSwitch(d, e.dragging, e.overflow, e.overflowDays);
 }
 
@@ -1822,20 +1982,103 @@ function renderArchiveControl() {
   if (S.id) sel.value = S.id;
 }
 
-// After an explicit pick, open the archive's whole extent when the view we
-// landed on would send the containment rule straight back; see index.html.
+// Day arithmetic on YYYYMMDD keys, via the axis's own index. `dayOf` round
+// trips, which is how 20150229 is caught: it indexes to 1 March and comes
+// back spelled that way.
+const dayIndex = k => keyIndex(k, "day");
+const dayOf = i => indexKey(i, "day");
+const isDay = k => dayOf(dayIndex(k)) === k;
+
+/**
+ * The extent an archive covers, known before it is read.
+ *
+ * The layout is the contract listYears() is already built from, so the picker
+ * does not have to fetch 2015 to know it runs from 1 January to 31 December.
+ * Null means "not knowable yet", and the caller falls back to opening
+ * whatever the read turns out to declare.
+ */
+function pickedExtent(id) {
+  if (/^\d{4}$/.test(id)) {
+    const w = latestWindow();
+    const last = w && String(w.max).slice(0, 4) === id ? String(w.max)
+                                                       : `${id}1231`;
+    return {min: `${id}0101`, max: last};
+  }
+  if (id === "latest") return latestWindow();
+  const m = S.mounted.get(id);
+  return m ? {min: keyDayRange(m.min, m.unit)[0],
+              max: keyDayRange(m.max, m.unit)[1]} : null;
+}
+
+/**
+ * Which days to select inside an archive that was picked by name.
+ *
+ * Same dates, a different year, when the pick is a calendar year and those
+ * dates exist in it: picking 2015 while looking at late September is a
+ * request to compare two Septembers, and landing on 24–28 September 2015
+ * answers it without a second gesture. Otherwise the newest slice of the
+ * archive, the same number of days wide, which is where every other opening
+ * in this app lands too.
+ */
+function pickedDays(ext, sel) {
+  if (sel && ext.min.slice(0, 4) === ext.max.slice(0, 4)) {
+    const y = ext.min.slice(0, 4);
+    const from = y + sel[0].slice(4), to = y + sel[1].slice(4);
+    if (isDay(from) && isDay(to) && from >= ext.min && to <= ext.max)
+      return [from, to];
+  }
+  const span = sel ? Math.max(1, dayIndex(sel[1]) - dayIndex(sel[0]) + 1) : 7;
+  const from = dayOf(dayIndex(ext.max) - span + 1);
+  return [from < ext.min ? ext.min : from, ext.max];
+}
+
+/**
+ * An explicit pick from the archive menu.
+ *
+ * The landing place is worked out BEFORE the mount and handed to it as a
+ * carry, which is what makes the menu work at all. mount() ends by asking
+ * activateOwner which archive best covers the selection, and until the
+ * selection has moved into the archive just asked for, the honest answer is
+ * the archive that was already on screen -- so picking 2015 while the
+ * selection sat in last week mounted 2015, was immediately told that the
+ * rolling window covers last week better, and switched straight back. The
+ * menu looked dead; it was arguing with itself.
+ *
+ * Carried in, the year fills the track and holds a selection inside itself,
+ * and every rule downstream agrees the year is the archive to draw.
+ */
 el("archive").onchange = async e => {
   const id = e.target.value;
   if (id === S.id) return;
-  await mount(id);
-  if (!S.axis || S.id !== id) return;
-  const d = tl.domainKeys();
-  if (!d) return;
-  const latest = ARCHIVES.latest && S.available.latest !== false ? latestWindow() : null;
-  const years = ORDER.filter(k => /^\d{4}$/.test(k));
-  if (chooseArchive(d, S.axis.unit, {latest, years}) === id) return;
+  const was = currentCarry();
+  const ext = pickedExtent(id);
+  await mount(id, ext ? {view: [ext.min, ext.max],
+                         sel: pickedDays(ext, was && was.sel)} : undefined);
+  if (!S.axis || S.id !== id || ext) return;
+  // Nothing was known about the extent up front; open what the read declared.
   tl.setDomainKeys(S.axis.min, S.axis.max);
 };
+
+// The about box. Prose needs more width than a legend, so the panel grows
+// while it is open rather than wrapping every line onto three. The panel is
+// scrolled back to the top rather than the box scrolled into view: the box is
+// taller than the screen either way, and scrolling to it takes the map's own
+// name off the top of its own panel.
+function showAbout(open) {
+  el("about").hidden = !open;
+  el("aboutbtn").setAttribute("aria-expanded", String(open));
+  el("aboutbtn").textContent = open ? "Close" : "About this map";
+  const panel = document.querySelector(".over");
+  panel.classList.toggle("wide", open);
+  panel.scrollTop = 0;
+}
+el("aboutbtn").onclick = () => showAbout(el("about").hidden);
+// Esc closes it, and only it: the track's own key handling is untouched
+// because the box is either open and swallows the key, or shut and never sees
+// it.
+addEventListener("keydown", e => {
+  if (e.key === "Escape" && !el("about").hidden) { showAbout(false); el("track").focus(); }
+});
 
 // month vs date decides which native picker appears, so it follows the axis.
 function syncInputs() {
@@ -1921,10 +2164,26 @@ renderArchiveControl();
     if (r.meta && r.meta.unit === "day")
       _latestWindow = {min: r.meta.min, max: r.meta.max};
   } catch { S.available.latest = false; renderArchiveControl(); }
-  // Land on the rolling window, not all time. It is the smallest archive
-  // published and the freshest data, which is what most visitors came for;
-  // all-time is one zoom-out away and the containment rule fetches it then.
-  await mount(qs.get("archive") || "latest");
+  // A link that carries a time opens on it: the same containment rule the
+  // viewer uses while it is running picks which archive covers that span, so
+  // a shared view comes up in one mount rather than landing on the rolling
+  // window and switching once the carry has moved somewhere else.
+  //
+  // Without one, land on the rolling window rather than all time. It is the
+  // smallest archive published and the freshest data, which is what most
+  // visitors came for; all-time is one zoom-out away and the containment rule
+  // fetches it then.
+  const view = hashRange("view");
+  let id = qs.get("archive");
+  if (!id && view)
+    id = chooseArchive({from: view[0], to: view[1]}, "day",
+                       {latest: latestWindow(),
+                        years: ORDER.filter(k => /^\d{4}$/.test(k) &&
+                                                 S.available[k] !== false)});
+  if (!id || !ARCHIVES[id]) id = "latest";
+  await mount(id, view ? {view, sel: hashRange("sel") ||
+                                pickedDays({min: view[0], max: view[1]}, null)}
+                       : undefined);
 })();
 el("track").focus();
 </script></body></html>
