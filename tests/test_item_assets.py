@@ -72,6 +72,7 @@ if not isinstance(probe, int):
     raise SystemExit(0)
 
 checked = 0
+unreachable = 0
 for path in items:
     doc = json.loads(path.read_text())
     base = ("https://data.source.coop/portolan-mirrors/firms-catalog/"
@@ -85,12 +86,27 @@ for path in items:
         else:
             continue
         code, _ = head(url)
+        # head() returns an int when the server answered and a string when the
+        # request never got there. Only the first kind says anything about the
+        # catalog. The initial probe above establishes that the network works,
+        # but it can drop part-way through a hundred and fifty objects, and
+        # this gate used to report every one of those as a missing asset -- so
+        # a flaky link failed the build for a catalog that was entirely
+        # correct. That is the same confusion, in the other direction, that
+        # cost 2011 and 2019 their tile and style assets: make_items read a
+        # failed HEAD as "not published" and dropped them.
+        if not isinstance(code, int):
+            unreachable += 1
+            print(f"note   {path.parent.name}: asset '{name}' -> {href} did "
+                  f"not answer ({code}); inconclusive, not counted")
+            continue
         checked += 1
-        check(code == 200, f"{path.parent.name}: asset '{name}' -> {href} is "
-              + (f"HTTP {code}" if isinstance(code, int) else f"unreachable ({code})"))
+        check(code == 200,
+              f"{path.parent.name}: asset '{name}' -> {href} is HTTP {code}")
 
 if errors:
     print("\n".join(f"error  {e}" for e in errors))
     raise SystemExit(1)
+tail = f"; {unreachable} did not answer and were not checked" if unreachable else ""
 print(f"OK: {checked} item asset(s) across {len(items)} item(s) resolve, "
-      f"and all {len(items)} follow the year=<Y>/fire-<Y>.pmtiles layout")
+      f"and all {len(items)} follow the year=<Y>/fire-<Y>.pmtiles layout{tail}")

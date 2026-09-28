@@ -33,6 +33,7 @@ from pathlib import Path
 import duckdb
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from net import head  # noqa: E402
 from schema import stac_columns  # noqa: E402
 
 PUBLIC = "https://data.source.coop/portolan-mirrors/firms-catalog"
@@ -113,19 +114,54 @@ def stats(con, url: str) -> dict | None:
     return {"rows": rows, "bbox": bbox, "t0": t0, "t1": t1}
 
 
-def remote_size(url: str) -> int | None:
+class Unreachable:
+    """The probe never got an answer, so the object's state is unknown.
+
+    Distinct from None, which means the server answered and said the object is
+    not there. Conflating the two is what cost 2011 and 2019 their tile and
+    style assets: one flaky HEAD during one generation read as "not published
+    yet", the assets were omitted, and nothing put them back on the next run
+    because the item no longer claimed them. A catalog should not lose an asset
+    because a packet did.
+    """
+    __bool__ = lambda self: False
+
+
+UNREACHABLE = Unreachable()
+
+
+def remote_size(url: str) -> int | None | Unreachable:
     """Content-Length for a published asset, without fetching the bytes.
 
     Size is worth one HEAD; checksum is not worth nine gigabytes of download,
     so published data assets carry file:size and no file:checksum. The local
     style assets get both, below.
+
+    Three outcomes, not two: an int when the server served it, None when the
+    server says it is not there, and UNREACHABLE when the request never got an
+    answer even after net.head's retries. Callers must keep whatever the item
+    already declared in the third case rather than dropping the asset.
     """
-    try:
-        req = urllib.request.Request(url, method="HEAD", headers=UA)
-        n = urllib.request.urlopen(req, timeout=30).headers.get("Content-Length")
-        return int(n) if n else None
-    except (urllib.error.URLError, OSError, ValueError):
+    code, length = head(url)
+    if not isinstance(code, int):
+        return UNREACHABLE
+    if code != 200:
         return None
+    return length
+
+
+def declared_size(size, previous: dict | None) -> dict:
+    """`file:size` for an asset, or nothing, or what was declared before.
+
+    An int is what the server said. None means it said the object is missing,
+    so there is no size to declare. UNREACHABLE means nobody said anything,
+    and the honest answer is whatever the item already claimed.
+    """
+    if isinstance(size, int):
+        return {"file:size": size}
+    if size is UNREACHABLE and previous and "file:size" in previous:
+        return {"file:size": previous["file:size"]}
+    return {}
 
 
 def local_bytes(path: Path) -> dict:
@@ -162,6 +198,17 @@ def main() -> int:
     for y in years:
         # live.parquet holds the rolling window; the archive part is per year.
         url = f"{PUBLIC}/detections/year={y}/detections.parquet"
+        # What this item declared last time. An asset whose probe does not
+        # answer is carried over from here rather than dropped: the object is
+        # almost certainly still there, and a generation run is not evidence
+        # that it is gone.
+        prior = {}
+        prior_path = cat / "detections" / f"year={y}" / f"{y}.json"
+        if prior_path.exists():
+            try:
+                prior = (json.loads(prior_path.read_text()).get("assets") or {})
+            except (OSError, json.JSONDecodeError):
+                prior = {}
         st = stats(con, url)
         if st is None:
             skipped.append(y)
@@ -207,7 +254,7 @@ def main() -> int:
                     "type": "application/vnd.apache.parquet",
                     "title": f"{y} detections, GeoParquet 2.0",
                     "roles": ["data"],
-                    **({"file:size": size} if (size := remote_size(url)) else {}),
+                    **declared_size(remote_size(url), prior.get("data")),
                 },
             },
             "links": [
@@ -230,7 +277,12 @@ def main() -> int:
         sdir = cat / "detections" / f"year={y}" / "styles"
         turl = f"{PUBLIC}/detections/year={y}/fire-{y}.pmtiles"
         tsize = remote_size(turl)
-        if tsize and (sdir / "default.json").exists():
+        if tsize is UNREACHABLE and "pmtiles" in prior:
+            print(f"  {y}: tileset did not answer; keeping the declared assets")
+            for k, v in prior.items():
+                if k == "pmtiles" or k.startswith("style-"):
+                    item["assets"][k] = v
+        elif tsize and (sdir / "default.json").exists():
             item["assets"]["pmtiles"] = {
                 "href": f"./fire-{y}.pmtiles",
                 "type": "application/vnd.pmtiles",
@@ -264,6 +316,11 @@ def main() -> int:
         for lvl in AGG_LEVELS:
             rel = f"year={y}/aggregate-r{lvl}.parquet"
             asize = remote_size(f"{PUBLIC}/detections/{rel}")
+            if asize is UNREACHABLE:
+                if (kept := prior.get(f"aggregate-r{lvl}")) is not None:
+                    print(f"  {y}: aggregate r{lvl} did not answer; keeping it")
+                    item["assets"][f"aggregate-r{lvl}"] = kept
+                continue
             if not asize:
                 continue
             item["assets"][f"aggregate-r{lvl}"] = {
