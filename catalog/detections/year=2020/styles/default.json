@@ -9,7 +9,7 @@
   },
   "layers": [
     {
-      "id": "fire-cells",
+      "id": "fire-cells-z0",
       "type": "fill",
       "source": "data",
       "source-layer": "aggregate",
@@ -17,61 +17,66 @@
         "fill-color": [
           "step",
           [
-            "zoom"
-          ],
-          [
-            "step",
+            "coalesce",
             [
-              "coalesce",
-              [
-                "get",
-                "count"
-              ],
-              0
+              "get",
+              "count"
             ],
-            "#2c3d5a",
-            1138,
-            "#3f6d8f",
-            6494,
-            "#59a1a0",
-            25646,
-            "#a8c268",
-            60785,
-            "#f2b134",
-            106407,
-            "#e8722c",
-            131146,
-            "#d1382a"
+            0
           ],
-          6,
-          [
-            "step",
-            [
-              "coalesce",
-              [
-                "get",
-                "count"
-              ],
-              0
-            ],
-            "#2c3d5a",
-            48,
-            "#3f6d8f",
-            268,
-            "#59a1a0",
-            987,
-            "#a8c268",
-            1642,
-            "#f2b134",
-            2501,
-            "#e8722c",
-            4021,
-            "#d1382a"
-          ]
+          "#2c3d5a",
+          1138,
+          "#3f6d8f",
+          6494,
+          "#59a1a0",
+          25646,
+          "#a8c268",
+          60785,
+          "#f2b134",
+          106407,
+          "#e8722c",
+          131146,
+          "#d1382a"
         ],
         "fill-opacity": 0.78,
         "fill-outline-color": "rgba(0,0,0,0.2)"
       },
+      "maxzoom": 6
+    },
+    {
+      "id": "fire-cells-z6",
+      "type": "fill",
+      "source": "data",
+      "source-layer": "aggregate",
+      "paint": {
+        "fill-color": [
+          "step",
+          [
+            "coalesce",
+            [
+              "get",
+              "count"
+            ],
+            0
+          ],
+          "#2c3d5a",
+          48,
+          "#3f6d8f",
+          268,
+          "#59a1a0",
+          987,
+          "#a8c268",
+          1642,
+          "#f2b134",
+          2501,
+          "#e8722c",
+          4021,
+          "#d1382a"
+        ],
+        "fill-opacity": 0.78,
+        "fill-outline-color": "rgba(0,0,0,0.2)"
+      },
+      "minzoom": 6,
       "maxzoom": 9
     },
     {

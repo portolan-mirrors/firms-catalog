@@ -7,6 +7,12 @@ GeoParquet 2.0 that you can query in place without downloading anything.
 This is a **mirror**. NASA LANCE FIRMS produces the data and remains the
 authoritative source.
 
+- **Explore it on a map** — [FIRMS explorer](https://portolan-mirrors.github.io/firms-catalog/)
+- **Browse the metadata** — [in the Portolan browser](https://browser.portolan-sdi.org/#/external/data.source.coop/portolan-mirrors/firms-catalog/catalog.json)
+- **Get the files** — [on Source Cooperative](https://source.coop/portolan-mirrors/firms-catalog)
+- **Read the build** — [the repository on GitHub](https://github.com/portolan-mirrors/firms-catalog)
+- **The collection** — [detections](detections/README.md) · [agent guide](detections/AGENTS.md)
+
 ## What is here
 
 One collection, `detections`, holding every FIRMS active fire detection from

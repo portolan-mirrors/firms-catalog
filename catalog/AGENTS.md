@@ -1,5 +1,11 @@
 # AGENTS.md — NASA FIRMS Active Fire Detections
 
+The collection guide with the column semantics, the recipes and the
+traps is [detections/AGENTS.md](detections/AGENTS.md). Humans want
+[detections/README.md](detections/README.md); the map is at
+<https://portolan-mirrors.github.io/firms-catalog/>, and the catalog browses at
+<https://browser.portolan-sdi.org/#/external/data.source.coop/portolan-mirrors/firms-catalog/catalog.json>.
+
 Guidance for AI agents and automated clients working with this catalog.
 
 **One rule survives every edit to this file.** Every claim here is either quoted

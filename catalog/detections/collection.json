@@ -10,7 +10,7 @@
   ],
   "id": "detections",
   "title": "Active Fire Detections (MODIS and VIIRS)",
-  "description": "Global satellite active fire and thermal anomaly detections from NASA FIRMS, as one year-partitioned GeoParquet 2.0 table of 631,469,093 rows covering 2000 to 2026. Carries MODIS (Terra and Aqua, 1 km) and VIIRS (Suomi-NPP, NOAA-20, NOAA-21, 375 m). Near-real-time rows are appended hourly and replaced by science-quality rows as NASA finalizes them; the `quality` column says which is which. Rows are ordered by month and then by a Hilbert index, so a reader prunes on both time and space. Read the [agent guide](AGENTS.md) before querying: `confidence` is encoded differently per instrument and `type` is NULL for all near-real-time rows.",
+  "description": "Global satellite active fire and thermal anomaly detections from NASA FIRMS, as one year-partitioned GeoParquet 2.0 table of 631,469,093 rows covering 2000 to 2026. Carries MODIS (Terra and Aqua, 1 km) and VIIRS (Suomi-NPP, NOAA-20, NOAA-21, 375 m). Near-real-time rows are appended hourly and replaced by science-quality rows as NASA finalizes them; the `quality` column says which is which. Rows are ordered by month and then by a Hilbert index, so a reader prunes on both time and space.\n\nA row is one PIXEL in one overpass that the algorithm flagged as hot -- not a fire, not a fire's location, and not its size. Three things mislead people most: raw detection counts are not comparable across years, because each new satellite adds overpasses (counts rose 5.5x when VIIRS joined MODIS in 2012, with no change in fire); `confidence` is an integer 0-100 for MODIS and l/n/h for VIIRS, with no published crosswalk; and `type` is NULL for every near-real-time row, so `type = 0` silently drops the most recent months. `frp` (fire radiative power, MW) is the column to sum when you want fire activity rather than a count of flagged pixels.\n\n[Explore it on a map](https://portolan-mirrors.github.io/firms-catalog/) - [README](README.md) - [agent guide](AGENTS.md) - [source and build](https://github.com/portolan-mirrors/firms-catalog)",
   "license": "CC0-1.0",
   "keywords": [
     "fire",
@@ -79,97 +79,97 @@
     {
       "name": "geometry",
       "type": "geometry",
-      "description": "Detection centre point (CRS84). This is the centre of the flagged pixel, not the actual fire location."
+      "description": "Detection centre point (CRS84). The centre of the flagged PIXEL, not the located fire: the true source can be anywhere inside the footprint that `scan` and `track` describe, and is often smaller than one pixel. Do not read the coordinate as a fire perimeter or a point ignition."
     },
     {
       "name": "acq_datetime",
       "type": "timestamp",
-      "description": "Acquisition time in UTC, composed from the published acq_date and acq_time."
+      "description": "Acquisition time in UTC, composed here from the published acq_date and acq_time. This is the satellite OVERPASS time, so it records when the fire was seen, not when it started or ended."
     },
     {
       "name": "acq_date",
       "type": "date",
-      "description": "Acquisition date as published."
+      "description": "Acquisition date as published, UTC."
     },
     {
       "name": "sensor",
       "type": "string",
-      "description": "MODIS, VIIRS_SNPP, VIIRS_NOAA20 or VIIRS_NOAA21."
+      "description": "MODIS, VIIRS_SNPP, VIIRS_NOAA20 or VIIRS_NOAA21. The single most important grouping column: resolution, confidence encoding and the brightness columns all differ by sensor, so a query that mixes them without saying so is usually wrong. MODIS runs from November 2000, VIIRS from January 2012. See https://www.earthdata.nasa.gov/data/instruments/modis and https://www.earthdata.nasa.gov/data/instruments/viirs."
     },
     {
       "name": "satellite",
       "type": "string",
-      "description": "Platform name: Terra, Aqua, Suomi-NPP, NOAA-20 or NOAA-21. Expanded from the published short codes."
+      "description": "Platform name: Terra, Aqua, Suomi-NPP, NOAA-20 or NOAA-21. Expanded here from the short codes FIRMS publishes. Each platform has its own overpass times, which is what makes detection counts a function of how many satellites were flying that year as much as of how much burned."
     },
     {
       "name": "instrument",
       "type": "string",
-      "description": "MODIS or VIIRS."
+      "description": "MODIS or VIIRS. The sensor family behind `sensor`."
     },
     {
       "name": "quality",
       "type": "string",
-      "description": "sp for science-quality, nrt for near-real-time. NRT locations are less accurate and carry no type."
+      "description": "`sp` for science-quality, `nrt` for near-real-time. NRT rows are published within hours and are later replaced by SP rows, roughly three to four months behind. NRT geolocation is less accurate and NRT rows carry no `type`. Filter on this column whenever consistency matters more than freshness."
     },
     {
       "name": "version",
       "type": "string",
-      "description": "Collection and processing designation as published, for example 2.0NRT or 6.1."
+      "description": "Collection and processing designation exactly as published, for example `2.0NRT` or `6.1`. Changes here mark upstream algorithm revisions, so a long time series can span more than one."
     },
     {
       "name": "brightness",
       "type": "double",
-      "description": "MODIS channel 21/22 brightness temperature in Kelvin. NULL for VIIRS rows."
+      "description": "MODIS channel 21/22 brightness temperature, kelvin. NULL for VIIRS rows. Defined in the MODIS fire user guide: https://modis-fire.umd.edu/files/MODIS_C6_C6.1_Fire_User_Guide_1.0.pdf"
     },
     {
       "name": "bright_t31",
       "type": "double",
-      "description": "MODIS channel 31 brightness temperature in Kelvin. NULL for VIIRS rows."
+      "description": "MODIS channel 31 brightness temperature, kelvin. NULL for VIIRS rows. Used with `brightness` in the MODIS detection algorithm; the contrast between the two is what separates a fire from a hot background."
     },
     {
       "name": "bright_ti4",
       "type": "double",
-      "description": "VIIRS I-4 channel brightness temperature in Kelvin. NULL for MODIS rows."
+      "description": "VIIRS I-4 channel brightness temperature, kelvin. NULL for MODIS rows. The VIIRS analogue of `brightness`, and NOT interchangeable with it."
     },
     {
       "name": "bright_ti5",
       "type": "double",
-      "description": "VIIRS I-5 channel brightness temperature in Kelvin. NULL for MODIS rows."
+      "description": "VIIRS I-5 channel brightness temperature, kelvin. NULL for MODIS rows. The VIIRS analogue of `bright_t31`."
     },
     {
       "name": "scan",
       "type": "double",
-      "description": "Along-scan pixel size at the detection, in km for MODIS and m for VIIRS."
+      "description": "Along-scan footprint of the pixel at the detection. Kilometres for MODIS, metres for VIIRS -- the units differ by sensor. Grows away from nadir, so a detection at the swath edge covers several times the ground a nadir detection does."
     },
     {
       "name": "track",
       "type": "double",
-      "description": "Along-track pixel size at the detection, in km for MODIS and m for VIIRS."
+      "description": "Along-track footprint of the pixel. Kilometres for MODIS, metres for VIIRS, as `scan`. Multiply the two for the approximate ground area the detection represents."
     },
     {
       "name": "frp",
       "type": "double",
-      "description": "Fire radiative power in megawatts."
+      "description": "Fire radiative power in megawatts: the rate at which the pixel radiates energy, which scales with how much biomass is burning per unit time. It is the closest thing in this table to fire intensity, and it is what to sum when you want a measure of fire ACTIVITY rather than a count of flagged pixels. Integrate FRP over time to approximate total radiated energy and hence fuel consumed. Not comparable pixel-for-pixel across sensors of different resolution, and suppressed by cloud and heavy smoke. Derivation is in the MODIS fire user guide: https://modis-fire.umd.edu/files/MODIS_C6_C6.1_Fire_User_Guide_1.0.pdf"
     },
     {
       "name": "daynight",
       "type": "string",
-      "description": "D for a daytime detection, N for night."
+      "description": "`D` for a daytime overpass, `N` for night. Worth splitting on: night detections have a cleaner thermal background and behave differently from daytime ones, and the day/night mix shifts with latitude and season."
     },
     {
       "name": "confidence",
       "type": "string",
-      "description": "As published, and NOT comparable across instruments: MODIS gives an integer 0-100, VIIRS gives l, n or h. No crosswalk is published here because none is documented upstream."
+      "description": "As published, and NOT comparable across instruments. MODIS gives an integer 0-100; VIIRS gives `l` (low), `n` (nominal) or `h` (high). No crosswalk is published here because none is documented upstream. It is a measure of how sure the ALGORITHM is that the pixel is a fire, not of how large or how real the fire is, and it is intended for filtering rather than for weighting. A common starting point is to drop `l` and MODIS below 30 for analysis. Defined in the FIRMS FAQ: https://www.earthdata.nasa.gov/data/tools/firms/faq"
     },
     {
       "name": "confidence_pct",
       "type": "int32",
-      "description": "Numeric confidence 0-100. MODIS rows only; NULL for VIIRS."
+      "description": "Numeric confidence 0-100, added here so MODIS rows can be filtered arithmetically. MODIS rows only; NULL for VIIRS, which has no numeric equivalent. Never coalesce this with a VIIRS category to make one scale."
     },
     {
       "name": "type",
       "type": "int32",
-      "description": "0 vegetation fire, 1 active volcano, 2 other static land source, 3 offshore. NULL for every NRT row, because FIRMS does not attribute type in near-real-time."
+      "description": "0 vegetation fire, 1 active volcano, 2 other static land source (gas flares, industrial heat), 3 offshore. NULL for EVERY near-real-time row, because FIRMS does not attribute type in near-real-time -- so a filter on `type = 0` silently drops the most recent months unless you also allow NULL. Defined in the FIRMS FAQ: https://www.earthdata.nasa.gov/data/tools/firms/faq"
     }
   ],
   "assets": {
@@ -181,8 +181,8 @@
         "style",
         "default"
       ],
-      "file:size": 2259,
-      "file:checksum": "12204142cf52031775235d36e04e311552549aa06fe0c733de98f9e795e306b28926"
+      "file:size": 2351,
+      "file:checksum": "12204c2f242106fac7a86f0ff8e4a9c9231ed990d16abfcee1f2d8bdc81973214967"
     },
     "style-avg-frp": {
       "href": "./styles/avg-frp.json",
@@ -191,8 +191,8 @@
       "roles": [
         "style"
       ],
-      "file:size": 2257,
-      "file:checksum": "122024379aa1aedda35889a75a8f028b9f93653af8a9e5df6983635851b9326eb230"
+      "file:size": 2349,
+      "file:checksum": "122054961a4d6b9d0e0c76248d5ae97d956303156bf82518efeb80f4439f02847d87"
     },
     "pmtiles": {
       "href": "./fire-latest.pmtiles",

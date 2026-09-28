@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -19,6 +20,9 @@ import urllib.error
 import urllib.request
 
 import duckdb
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from schema import stac_columns  # noqa: E402
 
 # Source Cooperative's CDN 403s the default urllib agent, which returns None
 # from a HEAD and reads exactly like "not published yet".
@@ -40,30 +44,6 @@ PUBLIC = "https://data.source.coop/portolan-mirrors/firms-catalog"
 S3 = "s3://portolan-mirrors/firms-catalog"
 REPO = "https://github.com/portolan-mirrors/firms-catalog"
 APP = "https://portolan-mirrors.github.io/firms-catalog/"
-
-# name -> (type, description). Descriptions are the same text AGENTS.md carries.
-COLUMNS = [
-    ("geometry", "geometry", "Detection centre point (CRS84). This is the centre of the flagged pixel, not the actual fire location."),
-    ("acq_datetime", "timestamp", "Acquisition time in UTC, composed from the published acq_date and acq_time."),
-    ("acq_date", "date", "Acquisition date as published."),
-    ("sensor", "string", "MODIS, VIIRS_SNPP, VIIRS_NOAA20 or VIIRS_NOAA21."),
-    ("satellite", "string", "Platform name: Terra, Aqua, Suomi-NPP, NOAA-20 or NOAA-21. Expanded from the published short codes."),
-    ("instrument", "string", "MODIS or VIIRS."),
-    ("quality", "string", "sp for science-quality, nrt for near-real-time. NRT locations are less accurate and carry no type."),
-    ("version", "string", "Collection and processing designation as published, for example 2.0NRT or 6.1."),
-    ("brightness", "double", "MODIS channel 21/22 brightness temperature in Kelvin. NULL for VIIRS rows."),
-    ("bright_t31", "double", "MODIS channel 31 brightness temperature in Kelvin. NULL for VIIRS rows."),
-    ("bright_ti4", "double", "VIIRS I-4 channel brightness temperature in Kelvin. NULL for MODIS rows."),
-    ("bright_ti5", "double", "VIIRS I-5 channel brightness temperature in Kelvin. NULL for MODIS rows."),
-    ("scan", "double", "Along-scan pixel size at the detection, in km for MODIS and m for VIIRS."),
-    ("track", "double", "Along-track pixel size at the detection, in km for MODIS and m for VIIRS."),
-    ("frp", "double", "Fire radiative power in megawatts."),
-    ("daynight", "string", "D for a daytime detection, N for night."),
-    ("confidence", "string", "As published, and NOT comparable across instruments: MODIS gives an integer 0-100, VIIRS gives l, n or h. No crosswalk is published here because none is documented upstream."),
-    ("confidence_pct", "int32", "Numeric confidence 0-100. MODIS rows only; NULL for VIIRS."),
-    ("type", "int32", "0 vegetation fire, 1 active volcano, 2 other static land source, 3 offshore. NULL for every NRT row, because FIRMS does not attribute type in near-real-time."),
-]
-
 
 def widen_from_items(catalog_dir: Path, live: tuple, years: list[int]) -> tuple:
     """Union the staged extent with every published item's.
@@ -325,9 +305,18 @@ def main() -> int:
             f"(Suomi-NPP, NOAA-20, NOAA-21, 375 m). Near-real-time rows are appended hourly "
             f"and replaced by science-quality rows as NASA finalizes them; the `quality` "
             f"column says which is which. Rows are ordered by month and then by a Hilbert "
-            f"index, so a reader prunes on both time and space. Read the "
-            f"[agent guide](AGENTS.md) before querying: `confidence` is encoded differently "
-            f"per instrument and `type` is NULL for all near-real-time rows."
+            f"index, so a reader prunes on both time and space.\n\n"
+            f"A row is one PIXEL in one overpass that the algorithm flagged as hot -- not a "
+            f"fire, not a fire's location, and not its size. Three things mislead people "
+            f"most: raw detection counts are not comparable across years, because each new "
+            f"satellite adds overpasses (counts rose 5.5x when VIIRS joined MODIS in 2012, "
+            f"with no change in fire); `confidence` is an integer 0-100 for MODIS and "
+            f"l/n/h for VIIRS, with no published crosswalk; and `type` is NULL for every "
+            f"near-real-time row, so `type = 0` silently drops the most recent months. "
+            f"`frp` (fire radiative power, MW) is the column to sum when you want fire "
+            f"activity rather than a count of flagged pixels.\n\n"
+            f"[Explore it on a map]({APP}) - [README](README.md) - "
+            f"[agent guide](AGENTS.md) - [source and build]({REPO})"
         ),
         "license": "CC0-1.0",
         "keywords": ["fire", "wildfire", "active fire", "thermal anomaly", "MODIS",
@@ -362,9 +351,7 @@ def main() -> int:
         "partition:glob": f"{S3}/detections/year=*/detections.parquet",
         "table:primary_geometry": "geometry",
         "table:row_count": n,
-        "table:columns": [
-            {"name": nm, "type": ty, "description": desc} for nm, ty, desc in COLUMNS
-        ],
+        "table:columns": stac_columns(),
         "assets": assets,
         "links": [
             {"rel": "root", "href": "../catalog.json", "type": "application/json",

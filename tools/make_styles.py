@@ -46,15 +46,45 @@ def steps(values: list) -> list:
     return expr
 
 
-def fill_color(metric: str, bands: list) -> list:
-    """Step on zoom, then on the metric, so each level uses its own classes."""
+def cell_layers(metric: str, bands: list, stop: int | None) -> list:
+    """One fill layer per pyramid band, each stepping only on the metric.
+
+    This used to be a single layer whose `fill-color` stepped on zoom first and
+    on the metric second. It rendered correctly and read as nonsense. A legend
+    reader takes the first fill layer's `fill-color` and expects
+    `["step", <input>, colour, break, colour, ...]`; ours handed it
+    `["step", ["zoom"], <step>, 6, <step>]`, so it drew the inner expressions
+    as swatches and labelled them from the ZOOM breakpoint. The Portolan
+    browser showed two identical red boxes reading "< 6" and "6+" for a layer
+    whose classes actually run from 48 to 4,021 detections.
+
+    A layer per band says the same thing in a shape a reader can follow: each
+    carries one flat set of classes and the zoom window it applies to, which is
+    also the more idiomatic way to write it. `stop` is the zoom where raw
+    points take over, if the archive carries any.
+    """
     read = ["coalesce", ["get", metric], 0]
-    if len(bands) == 1:
-        return ["step", read] + steps(bands[0]["metrics"][metric])
-    expr = ["step", ["zoom"], ["step", read] + steps(bands[0]["metrics"][metric])]
-    for b in bands[1:]:
-        expr += [b["minzoom"], ["step", read] + steps(b["metrics"][metric])]
-    return expr
+    layers = []
+    for i, b in enumerate(bands):
+        # Bands declare inclusive integer zooms; a layer's maxzoom is the
+        # exclusive upper bound, so it is the next band's floor.
+        upper = bands[i + 1]["minzoom"] if i + 1 < len(bands) else stop
+        layer = {
+            # Named for the zoom it starts at, which is derivable from the
+            # style itself -- so a reader, or a tool rewriting a published
+            # style in place, lands on the same id the generator would.
+            "id": f"fire-cells-z{b['minzoom']}",
+            "type": "fill", "source": "data", "source-layer": "aggregate",
+            "paint": {"fill-color": ["step", read] + steps(b["metrics"][metric]),
+                      "fill-opacity": 0.78,
+                      "fill-outline-color": "rgba(0,0,0,0.2)"},
+        }
+        if b["minzoom"]:
+            layer["minzoom"] = b["minzoom"]
+        if upper is not None:
+            layer["maxzoom"] = upper
+        layers.append(layer)
+    return layers
 
 
 def main() -> int:
@@ -86,18 +116,10 @@ def main() -> int:
     for name, (metric, title) in STYLES.items():
         if not all(metric in b["metrics"] for b in bands):
             continue
-        cells = {
-            "id": "fire-cells", "type": "fill", "source": "data",
-            "source-layer": "aggregate",
-            "paint": {"fill-color": fill_color(metric, bands),
-                      "fill-opacity": 0.78,
-                      "fill-outline-color": "rgba(0,0,0,0.2)"},
-        }
-        layers = [cells]
         # Raw points exist only where the archive actually carries them. Where
         # they do, the cells stop rather than drawing underneath.
+        layers = cell_layers(metric, bands, pt["minzoom"] if pt else None)
         if pt:
-            cells["maxzoom"] = pt["minzoom"]
             layers.append({
                 "id": "fire-points", "type": "circle", "source": "data",
                 "source-layer": "features", "minzoom": pt["minzoom"],

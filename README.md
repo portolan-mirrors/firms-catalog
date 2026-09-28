@@ -7,14 +7,25 @@ Catalog metadata lives in this repository. The data lives on
 [Source Cooperative](https://source.coop/portolan-mirrors/firms-catalog).
 CI validates every change to the metadata; the data is rebuilt on a schedule.
 
+- **Explore it on a map**: https://portolan-mirrors.github.io/firms-catalog/
+- **Browse the catalog**: [in the Portolan browser](https://browser.portolan-sdi.org/#/external/data.source.coop/portolan-mirrors/firms-catalog/catalog.json)
 - **Published catalog**: https://source.coop/portolan-mirrors/firms-catalog
 - **STAC root**: https://data.source.coop/portolan-mirrors/firms-catalog/catalog.json
 - **Upstream**: https://firms.modaps.eosdis.nasa.gov/
 
+Start with the collection's own documentation: what the data is and how to
+read it is in [catalog/detections/README.md](catalog/detections/README.md),
+and the query recipes and traps are in
+[catalog/detections/AGENTS.md](catalog/detections/AGENTS.md). Everything below
+is about how this repository builds and publishes that.
+
 ## What it publishes
 
 One collection, `detections`: every MODIS and VIIRS active fire detection from
-November 2000 to today, about 575 million rows, as one year-partitioned table.
+November 2000 to today -- 631,469,093 rows as of the last rebuild -- as one
+year-partitioned table. `table:row_count` in
+[the collection](catalog/detections/collection.json) is the measured figure and
+is regenerated on every publish; this sentence is not, so trust that one.
 
 ```
 detections/year=<YYYY>/detections.parquet

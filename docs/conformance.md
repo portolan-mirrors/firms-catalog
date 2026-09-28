@@ -14,14 +14,21 @@ widened allow-list is a false claim about what this catalog conforms to.
 
 ## The rashid version floor
 
-The gate needs rashid `>=0.1.5,<0.2.0`. It reads `rashid --version` and fails
+The gate needs rashid `>=0.1.8,<0.2.0`. It reads `rashid --version` and fails
 outside that range. It also fails when rashid is absent, and prints the install
 command. A skip would report a green run for a catalog that no validator read.
 
-The floor is 0.1.5 because rules PTL-LNK-007, PTL-LNK-008, PTL-LNK-009 and
-PTL-AST-006 do not exist below it. The gate asserts all four. An older rashid
-reports a pass for a catalog that it never checked against them. The same range
-is in `portolan-cli/pyproject.toml` and in the CI install step.
+Rules PTL-LNK-007, PTL-LNK-008, PTL-LNK-009 and PTL-AST-006 do not exist below
+0.1.5, and the gate asserts all four, so that is the hard minimum. The floor
+sits at 0.1.8 because that was the newest release when this catalog was
+configured; taking the newest at setup is what stops a template-derived repo
+inheriting a stale one.
+
+Four places name this range: the gate, the CI install step, the two data
+workflows, and this page. They must agree. They drifted once -- CI installed
+`>=0.1.5` while the gate demanded 0.1.8 -- which passed only because pip
+resolves to the newest, and would have failed confusingly the day 0.1.8 was
+yanked.
 
 The upper bound stops an unreviewed 0.2 rule set from changing what this gate
 means. Raise both bounds together when you move to 0.2, and read the new rules

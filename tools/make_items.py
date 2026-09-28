@@ -32,6 +32,9 @@ from pathlib import Path
 
 import duckdb
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from schema import stac_columns  # noqa: E402
+
 PUBLIC = "https://data.source.coop/portolan-mirrors/firms-catalog"
 AVAIL = "https://firms.modaps.eosdis.nasa.gov/api/data_availability/csv/{key}/ALL"
 # The a5 levels the year pyramids band across: r5 for the overview zooms, r8
@@ -186,7 +189,15 @@ def main() -> int:
                 "datetime": None,
                 "start_datetime": iso(st["t0"]),
                 "end_datetime": iso(st["t1"]),
+                "description": (
+                    f"Every MODIS and VIIRS active fire detection NASA FIRMS "
+                    f"recorded in {y}: {st['rows']:,} rows of GeoParquet 2.0, "
+                    f"with the a5 aggregate grids and the vector tiles built "
+                    f"from them alongside. Sensors flying this year: "
+                    f"{', '.join(sensors)}."
+                ),
                 "table:row_count": st["rows"],
+                "table:columns": stac_columns(),
                 "firms:sensors": sensors,
                 **({"firms:sensors_pending": short} if short else {}),
             },
@@ -232,7 +243,8 @@ def main() -> int:
                     "href": f"./styles/{sf.name}",
                     "type": "application/vnd.mapbox.style+json",
                     "title": json.loads(sf.read_text()).get("name", sf.stem),
-                    "roles": ["style"],
+                    "roles": ["style", "default"] if sf.stem == "default"
+                             else ["style"],
                     **local_bytes(sf),
                 }
         # The a5 aggregates the tiles were built from.

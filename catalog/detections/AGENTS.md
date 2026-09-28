@@ -2,6 +2,14 @@
 
 Guidance for AI agents and automated clients working with this catalog.
 
+Humans want [README.md](README.md). The data is on
+[Source Cooperative](https://source.coop/portolan-mirrors/firms-catalog), the
+metadata browses in the
+[Portolan browser](https://browser.portolan-sdi.org/#/external/data.source.coop/portolan-mirrors/firms-catalog/detections/collection.json),
+there is a [map of the whole record](https://portolan-mirrors.github.io/firms-catalog/),
+and the build is in
+[the repository](https://github.com/portolan-mirrors/firms-catalog).
+
 **One rule survives every edit to this file.** Every claim here is either quoted
 from a source or measured from the data. If you cannot point at where a fact
 came from, it does not belong in this file. An agent acting on an invented join
@@ -236,6 +244,34 @@ the year files when the answer has to be current.
 
 
 ## Quirks that produce silently wrong answers
+
+**Detection counts are not comparable across years.** The fleet grew, and each
+new satellite adds overpasses and therefore rows. Computed from
+`table:row_count` on the items in this collection **[derived]**:
+
+| transition | satellites | detections | change |
+|---|---|---|---|
+| 2011 -> 2012 | 1 -> 2 (VIIRS Suomi-NPP) | 4,722,658 -> 25,951,560 | **5.50x** |
+| 2017 -> 2018 | 2 -> 3 (NOAA-20) | 24,565,794 -> 37,980,401 | **1.55x** |
+| 2023 -> 2024 | 3 -> 4 (NOAA-21) | 47,904,858 -> 69,183,241 | **1.44x** |
+
+None of those jumps is fire. Any query that trends counts over time must hold
+the sensor fixed -- `WHERE sensor = 'MODIS'` gives a consistent series from
+November 2000 -- or account for the mix explicitly. `firms:sensors` on each
+year's item lists which satellites flew that year, so the check is one read of
+the metadata rather than a scan.
+
+**`frp` is the column to sum for fire activity; `count(*)` is not.** Fire
+radiative power is the rate at which a pixel radiates energy, in megawatts, and
+it scales with how much biomass is burning per unit time **[attested,
+[MODIS fire user guide](https://modis-fire.umd.edu/files/MODIS_C6_C6.1_Fire_User_Guide_1.0.pdf)]**.
+Integrating it over time approximates total radiated energy and hence fuel
+consumed, which is why it is the standard satellite input to fire emissions
+models. It is suppressed by cloud and heavy smoke, and it is not comparable
+pixel-for-pixel between sensors of different resolution, so group by `sensor`
+when you sum it. A row count answers "how many hot pixels were observed", which
+is a function of the satellite fleet; an FRP sum answers "how much was
+burning".
 
 **`confidence` is not comparable across instruments.** MODIS publishes an
 integer 0-100. VIIRS publishes `l`, `n`, or `h` **[attested]**. Both live in one
