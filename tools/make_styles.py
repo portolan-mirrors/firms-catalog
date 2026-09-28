@@ -31,6 +31,105 @@ STYLES = {
     "avg-frp": ("avg_frp", "Fire radiative power{suffix} (average)"),
 }
 
+# Styles that colour a cell by a SHARE of its own detections rather than by a
+# count. They need no class breaks from the archive -- a share is already on a
+# fixed 0-100 scale -- so the only question is whether the archive carries the
+# pivot columns, which is read from its declared field list rather than
+# assumed. `gpio process aggregate a5` pivots one categorical column per run,
+# so an archive built before a pivot was added simply will not have it.
+#
+# A share also reads honestly at every zoom, which a count does not: the
+# density styles need one class set per pyramid level because a coarse cell
+# holds about thirty times what a fine one does, where "what fraction of this
+# cell burned at night" means the same thing at r5 and at r10.
+RATIO_STYLES = [
+    {
+        "name": "day-night",
+        "title": "Day and night{suffix}",
+        "of": ["count_n"],
+        "breaks": [20, 40, 60, 80],
+        # Diverging about an even split: gold where the detections are almost
+        # all daytime, violet where they are almost all night.
+        "palette": ["#f2b134", "#cfa65c", "#8b949e", "#6d78c0", "#4a5bd4"],
+        "points": ("daynight", ["D", "#f2b134", "N", "#4a5bd4"], "#8b949e"),
+    },
+]
+
+# A sensor-mix style belongs here and is deliberately absent. Colouring a cell
+# by the share of its detections that came from VIIRS is a good map -- a low
+# share means the fires are large and hot enough for MODIS to see them too, a
+# high one means most of what is burning is small enough that only VIIRS at
+# 375 m catches it -- but it cannot use fixed classes, because the share is set
+# by which platforms flew that year as much as by what burned. Measured on the
+# published r5 aggregates:
+#
+#   2024 (4 platforms)  MODIS share  p50 6.5%   p90 14.3%
+#   2015 (2 platforms)  MODIS share  p50 17.3%  p90 32.0%
+#
+# and with the 20/40/60/80 classes the other styles use, 92.9% of 2024's cells
+# land in a single VIIRS-share class. Breaks tuned for one fleet era flatten
+# every other, which is the same problem make_breaks.py already solves for the
+# density styles by taking quantiles from the data. The fix is to derive share
+# breaks the same way and declare them in `firms:breaks`; until an archive
+# carries them, shipping the style would mean shipping a one-colour map.
+
+
+def declared_fields(md: dict, layer: str) -> set:
+    """The field names an archive says a layer carries."""
+    vl = md.get("vector_layers")
+    if vl is None:
+        vl = (json.loads(md.get("json", "{}")) or {}).get("vector_layers", [])
+    for entry in vl or []:
+        if entry.get("id") == layer:
+            return set((entry.get("fields") or {}).keys())
+    return set()
+
+
+def share_expression(fields: list) -> list:
+    """`fields` as a percentage of the cell's total count.
+
+    Every read is coalesced because MVT omits zero-valued attributes: a cell
+    with no night detections carries no `count_n` at all, and `["get", ...]`
+    on a missing attribute is null, which poisons the arithmetic rather than
+    reading as the zero it means. The denominator floors at 1 so a cell that
+    somehow reports no detections divides to 0 instead of erroring.
+    """
+    reads = [["coalesce", ["get", f], 0] for f in fields]
+    numerator = reads[0] if len(reads) == 1 else ["+"] + reads
+    return ["*", 100, ["/", numerator,
+                       ["max", 1, ["coalesce", ["get", "count"], 0]]]]
+
+
+def ratio_style(spec: dict, tiles: str, suffix: str, stop: int | None) -> dict:
+    """One share style: cells everywhere, and the raw points where they exist."""
+    fill = ["step", share_expression(spec["of"]), spec["palette"][0]]
+    for brk, colour in zip(spec["breaks"], spec["palette"][1:]):
+        fill += [brk, colour]
+    cells = {
+        "id": "fire-cells", "type": "fill", "source": "data",
+        "source-layer": "aggregate",
+        "paint": {"fill-color": fill, "fill-opacity": 0.78,
+                  "fill-outline-color": "rgba(0,0,0,0.2)"},
+    }
+    layers = [cells]
+    if stop is not None:
+        cells["maxzoom"] = stop
+        field, pairs, fallback = spec["points"]
+        layers.append({
+            "id": "fire-points", "type": "circle", "source": "data",
+            "source-layer": "features", "minzoom": stop,
+            "paint": {"circle-color": ["match", ["get", field]] + pairs + [fallback],
+                      "circle-radius": ["interpolate", ["linear"], ["zoom"],
+                                        stop, 2.2, stop + 4, 6],
+                      "circle-opacity": 0.9},
+        })
+    return {
+        "version": 8,
+        "name": spec["title"].format(suffix=suffix),
+        "sources": {"data": {"type": "vector", "url": f"pmtiles://{tiles}"}},
+        "layers": layers,
+    }
+
 
 def metadata(pmtiles: str) -> dict:
     out = subprocess.run(["pmtiles", "show", pmtiles, "--metadata"],
@@ -139,6 +238,23 @@ def main() -> int:
         written.append(p)
         zr = ", ".join(f"r?@z{b['minzoom']}+" for b in bands)
         print(f"  {p}  ({metric}, {len(bands)} band(s): {zr})")
+
+    have = declared_fields(md, "aggregate")
+    for spec in RATIO_STYLES:
+        # Any one of the pivots is enough to build the share; a pivot that is
+        # absent is a category with no rows, which is a zero, not a gap. The
+        # total has to be there, because it is the denominator.
+        present = [f for f in spec["of"] if f in have]
+        if not present or "count" not in have:
+            print(f"  skipped {spec['name']}: archive declares none of "
+                  f"{', '.join(spec['of'])}")
+            continue
+        style = ratio_style({**spec, "of": present}, a.tiles, a.suffix,
+                            pt["minzoom"] if pt else None)
+        p = out / f"{spec['name']}.json"
+        p.write_text(json.dumps(style, indent=2) + "\n")
+        written.append(p)
+        print(f"  {p}  (share of {'+'.join(spec['of'])})")
 
     refresh_declared_bytes(out, written)
     return 0

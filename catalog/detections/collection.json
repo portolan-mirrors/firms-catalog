@@ -181,8 +181,8 @@
         "style",
         "default"
       ],
-      "file:size": 2351,
-      "file:checksum": "12204c2f242106fac7a86f0ff8e4a9c9231ed990d16abfcee1f2d8bdc81973214967"
+      "file:size": 2350,
+      "file:checksum": "12202201aa36af69b64139209f899db51998dbdf996cc93464c58358bbb82e3763c8"
     },
     "style-avg-frp": {
       "href": "./styles/avg-frp.json",
@@ -191,8 +191,8 @@
       "roles": [
         "style"
       ],
-      "file:size": 2349,
-      "file:checksum": "122054961a4d6b9d0e0c76248d5ae97d956303156bf82518efeb80f4439f02847d87"
+      "file:size": 2353,
+      "file:checksum": "1220c9e9ac808f3103cbd1e3a4d5842e85b8c95f5c21cc958140a430cce5aa5a4a47"
     },
     "pmtiles": {
       "href": "./fire-latest.pmtiles",

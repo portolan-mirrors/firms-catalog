@@ -177,8 +177,8 @@
       "roles": [
         "style"
       ],
-      "file:size": 2341,
-      "file:checksum": "12201d6e11adf6d6696641f154d8110620f4b997e056f62398d1bb3827916a23c920"
+      "file:size": 2339,
+      "file:checksum": "12205b715347a6c21ad3524da761932aa21e4a0f601a67eb18c88d5e5ea3ba720b11"
     },
     "style-default": {
       "href": "./styles/default.json",
@@ -189,7 +189,7 @@
         "default"
       ],
       "file:size": 2356,
-      "file:checksum": "12200003dbdffa3e8496924fcc3968f40ea25fea63c99a0f7a7c8e248f1dedd395ec"
+      "file:checksum": "12202e7805e1c6dceb5ebb9f2e152ea528813ee564c156906118417155f26acdf7a7"
     },
     "aggregate-r5": {
       "href": "./aggregate-r5.parquet",

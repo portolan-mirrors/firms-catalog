@@ -1,0 +1,97 @@
+{
+  "version": 8,
+  "name": "Day and night, 2011",
+  "sources": {
+    "data": {
+      "type": "vector",
+      "url": "pmtiles://./fire-2011.pmtiles"
+    }
+  },
+  "layers": [
+    {
+      "id": "fire-cells",
+      "type": "fill",
+      "source": "data",
+      "source-layer": "aggregate",
+      "paint": {
+        "fill-color": [
+          "step",
+          [
+            "*",
+            100,
+            [
+              "/",
+              [
+                "coalesce",
+                [
+                  "get",
+                  "count_n"
+                ],
+                0
+              ],
+              [
+                "max",
+                1,
+                [
+                  "coalesce",
+                  [
+                    "get",
+                    "count"
+                  ],
+                  0
+                ]
+              ]
+            ]
+          ],
+          "#f2b134",
+          20,
+          "#cfa65c",
+          40,
+          "#8b949e",
+          60,
+          "#6d78c0",
+          80,
+          "#4a5bd4"
+        ],
+        "fill-opacity": 0.78,
+        "fill-outline-color": "rgba(0,0,0,0.2)"
+      },
+      "maxzoom": 9
+    },
+    {
+      "id": "fire-points",
+      "type": "circle",
+      "source": "data",
+      "source-layer": "features",
+      "minzoom": 9,
+      "paint": {
+        "circle-color": [
+          "match",
+          [
+            "get",
+            "daynight"
+          ],
+          "D",
+          "#f2b134",
+          "N",
+          "#4a5bd4",
+          "#8b949e"
+        ],
+        "circle-radius": [
+          "interpolate",
+          [
+            "linear"
+          ],
+          [
+            "zoom"
+          ],
+          9,
+          2.2,
+          13,
+          6
+        ],
+        "circle-opacity": 0.9
+      }
+    }
+  ]
+}
