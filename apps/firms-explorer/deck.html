@@ -439,11 +439,14 @@ const map = new maplibregl.Map({
 });
 window._map = map;
 
-// Overlaid rather than interleaved, so the cells draw over the labels the way
-// the MapLibre page's fill layer does. Interleaving is a one-flag change once
-// the label-over-cell look is wanted.
+// Interleaved, so the cells go into MapLibre's own layer stack rather than
+// onto a canvas above it. That is what lets the place labels draw ON TOP of
+// the cells: every deck layer is inserted before the first symbol layer, so
+// the fills cover the land and the water and nothing else. Overlaid, the
+// labels were under a translucent wash and a country name over a bright cell
+// was unreadable.
 const overlay = new deck.MapboxOverlay({
-  interleaved: false, layers: [],
+  interleaved: true, layers: [],
   onClick: info => { if (!info.object) el("pop").style.display = "none"; },
 });
 map.addControl(overlay);
@@ -1293,6 +1296,7 @@ function buildLayers() {
       minZoom: 0, maxZoom: S.outgoing.maxZoom,
       tileSize: DECK_TILE_SIZE,
       refinementStrategy: "no-overlap",
+      beforeId: _beforeId,
       maxRequests: 4,          // it is on its way out; do not starve the new one
       pickable: false,
       // Frozen: it paints whatever it painted when the switch began. Recolouring
@@ -1326,6 +1330,7 @@ function buildLayers() {
       minZoom: 0, maxZoom: read.maxZoom ?? S.maxZoom,
       tileSize: DECK_TILE_SIZE,
       refinementStrategy: "no-overlap",
+      beforeId: _beforeId,
       maxRequests: 6,
       pickable: false,
       onTileLoad: t => { addToCache(cache, t); timelineProgress(); },
@@ -1350,6 +1355,7 @@ function buildLayers() {
     // resolutions showed at once. no-overlap drops the ancestor the moment its
     // children have arrived and never draws the two together.
     refinementStrategy: "no-overlap",
+    beforeId: _beforeId,
     // deck.gl's default is 6 tiles in flight. A tile from the archive is one
     // range request at 400 to 1200 ms, and a zoom wants a dozen or more, so
     // at 6 they arrive in rounds and no-overlap waits for the last round.
@@ -1730,6 +1736,40 @@ function writeHash() {
  * pins it, and `auto` appears once it is pinned, because a choice made at one
  * zoom is rarely meant to hold at every other.
  */
+// The layer every deck layer is inserted before: the first symbol layer in
+// the style. Null until the style has loaded, in which case deck appends on
+// top and the first rebuild after style.load puts it right.
+let _beforeId = null;
+
+// CARTO draws its administrative boundaries for a bare basemap, where they are
+// the only thing on the map. Under a full-coverage cell layer they are the
+// brightest thing on screen and read as data. Dimmed rather than hidden --
+// a country outline is still worth having when you are working out where a
+// fire is -- and by opacity rather than colour, so the style stays CARTO's.
+// Dark Matter paints the land near-black and the water a lighter slate,
+// which reads as the sea being the subject. Under a cell layer that covers
+// every continent it wants to be the other way round: the water recedes to
+// black and the land carries a grey the cells sit on. Both colours are
+// already CARTO's own -- they simply change places -- so the basemap still
+// looks like the style it is.
+const LAND = "#2c353c", WATER = "#0e0e0e";
+const BASE_COLOUR = {
+  background: ["background-color", LAND],
+  landcover: ["fill-color", LAND],
+  landuse: ["fill-color", LAND],
+  park_national_park: ["fill-color", LAND],
+  park_nature_reserve: ["fill-color", LAND],
+  water: ["fill-color", WATER],
+  water_shadow: ["fill-color", WATER],
+};
+
+const BOUNDARY_OPACITY = {
+  boundary_country_inner: 0.3,
+  boundary_country_outline: 0.25,
+  boundary_state: 0.25,
+  boundary_county: 0.35,
+};
+
 const LABEL_ZOOM = 6;
 let _labelMode = "auto";          // "auto" | "on" | "off"
 let _labelIds = [];
@@ -1754,11 +1794,26 @@ function applyLabels() {
 // Read the label layers once the style is in. Asking the style on every zoom
 // would walk ninety-odd layers a frame to learn something that cannot change.
 map.on("style.load", () => {
-  _labelIds = map.getStyle().layers
+  const layers = map.getStyle().layers;
+  _labelIds = layers
     .filter(l => l.type === "symbol" && (l.layout || {})["text-field"])
     .map(l => l.id);
+  // Every symbol layer, not only the ones carrying text: the anchor has to be
+  // above the last thing the cells should cover, and a symbol layer with only
+  // an icon is still part of the labelling.
+  const firstSymbol = layers.find(l => l.type === "symbol");
+  _beforeId = firstSymbol ? firstSymbol.id : null;
+  for (const [id, opacity] of Object.entries(BOUNDARY_OPACITY)) {
+    if (map.getLayer(id)) map.setPaintProperty(id, "line-opacity", opacity);
+  }
+  for (const [id, [prop, colour]] of Object.entries(BASE_COLOUR)) {
+    if (map.getLayer(id)) map.setPaintProperty(id, prop, colour);
+  }
   _labelsOn = null;               // the fresh style has them all visible
   applyLabels();
+  // The layers built before the style arrived have no anchor, so they went on
+  // top. Rebuild now that there is somewhere to put them.
+  if (S.axis && S.pm) overlay.setProps({layers: buildLayers()});
 });
 map.on("zoom", applyLabels);
 el("labels").onchange = e => {
