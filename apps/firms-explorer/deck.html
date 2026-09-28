@@ -237,7 +237,42 @@ import {Stats} from "./stats.js";
 import {DECK_TILE_SIZE, TileCache, bucketIndex, countFor, fillFor, lngOverlaps,
         selectionPlan, tileZoom} from "./deck-cells.js";
 
-maplibregl.addProtocol("pmtiles", new pmtiles.Protocol().tile);
+/**
+ * A PMTiles archive read with Chrome's HTTP cache out of the path.
+ *
+ * Chrome serialises concurrent Range GETs that share a URL behind its cache
+ * lock -- only one in-flight request per cache entry may write it, so the rest
+ * queue, and one that queues too long is abandoned. Every tile of an archive
+ * is a Range GET against the same .pmtiles URL and deck asks for twenty at
+ * once, so this is not an edge case here, it is the steady state.
+ *
+ * Measured against fire-2021.pmtiles, eight 64 KiB reads, arms interleaved and
+ * their order flipped between repetitions: 21.4 s / 17.3 s / 13.0 s as issued
+ * against 3.4 s / 3.6 s / 3.2 s with `cache: "no-store"` -- about five times,
+ * and far steadier, which is the queue being the variance. Pushed to twelve
+ * 400 KiB reads the as-issued arm stops finishing at all: nine of twenty-six
+ * requests ended at the same 125,456 ms and the batch threw `TypeError:
+ * Failed to fetch`, which is Chrome giving up on the queue rather than a
+ * network failure.
+ *
+ * pmtiles knows about this -- `chromeWindowsNoCache` sets exactly this flag --
+ * but only for Chromium on Windows. The lock is not Windows-only; the numbers
+ * above are macOS. Setting the flag by hand is reaching past the published
+ * API, so a version that drops it says so rather than silently going slow.
+ *
+ * Nothing is given up. The archives carry no `cache-control` (Source
+ * Cooperative sends none), and these are Range requests, so the disk cache was
+ * never answering them; within a session the bytes are held by _tileBytes.
+ */
+function openPMTiles(url) {
+  const src = new pmtiles.FetchSource(url);
+  if (!("chromeWindowsNoCache" in src))
+    console.warn("pmtiles FetchSource no longer carries the no-cache flag; " +
+                 "range reads will serialise behind Chrome's cache lock");
+  src.chromeWindowsNoCache = true;
+  return new pmtiles.PMTiles(src);
+}
+
 
 // Where the tiles live. Defaults to the published archives so the hosted app
 // needs no configuration; ?base=… points it at a local build.
@@ -247,6 +282,13 @@ const BASE = qs.get("base") ||
 // Protomaps' OpenStreetMap basemap, on the same origin as the data, so the
 // background comes from Source Cooperative rather than a third party.
 const BASEMAP = "https://data.source.coop/protomaps/openstreetmap/tiles/v3.pmtiles";
+
+// The basemap is the same shape of workload -- one URL, a viewport of tiles at
+// a time -- so it is registered on the protocol rather than left to the
+// instance MapLibre would build for itself.
+const _pmProtocol = new pmtiles.Protocol();
+_pmProtocol.add(openPMTiles(BASEMAP));
+maplibregl.addProtocol("pmtiles", _pmProtocol.tile);
 
 const AGG_LAYER = "aggregate", PT_LAYER = "features";
 
@@ -487,7 +529,7 @@ function pmtilesFetch(pm, id) {
 
 /** Read an archive's own description of itself, or nothing if it will not load. */
 async function readArchive(url) {
-  const pm = new pmtiles.PMTiles(url);
+  const pm = openPMTiles(url);
   const [md, header] = await Promise.all([pm.getMetadata(), pm.getHeader()]);
   const py = pyramid(md);
   const tl = timelineFromMetadata(md);
