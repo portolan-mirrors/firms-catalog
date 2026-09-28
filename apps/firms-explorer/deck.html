@@ -10,7 +10,6 @@
 <link href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet">
 <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
 <script src="https://unpkg.com/pmtiles@3.2.0/dist/pmtiles.js"></script>
-<script src="https://unpkg.com/protomaps-themes-base@4.5.0/dist/protomaps-themes-base.js"></script>
 <!-- The MVT loader, before deck.gl. deck's bundle does not expose the loader
      it uses for tiles, but it does put loaders.gl's `parse` on the `loaders`
      global, adding to an object that already exists. So the mvt package goes
@@ -120,6 +119,8 @@
   .about p:last-child{margin-bottom:0}
   .about .grp{margin:12px 0 5px}
   .about a{color:var(--acc)}
+  .optrow{display:flex;align-items:center;justify-content:space-between;gap:8px}
+  .link.tiny{margin-top:0;font-size:10px}
 </style></head><body>
 
 <div class="stage">
@@ -133,6 +134,14 @@
       <div class="grp" id="lgtitle">Detections in selection</div>
       <div class="legend" id="lg" style="margin-top:7px"></div>
       <div class="note" id="lgnote"></div>
+    </div>
+    <div class="sec optrow">
+      <label class="auto" for="labels"
+        title="Labels follow the zoom until you pick; on their own they come in above zoom 6.">
+        <input type="checkbox" id="labels"> place labels
+      </label>
+      <button type="button" class="link tiny" id="labelauto" hidden
+        title="Go back to following the zoom">auto</button>
     </div>
     <div class="sec about" id="about" hidden>
       <p>Every active fire detection NASA has published since November 2000 —
@@ -263,6 +272,9 @@ import {DECK_TILE_SIZE, TileCache, bucketIndex, countFor, fillFor, lngOverlaps,
  * Nothing is given up. The archives carry no `cache-control` (Source
  * Cooperative sends none), and these are Range requests, so the disk cache was
  * never answering them; within a session the bytes are held by _tileBytes.
+ *
+ * The basemap no longer comes through here -- CARTO serves ordinary tiles --
+ * so this is the fire archives' path alone.
  */
 function openPMTiles(url) {
   const src = new pmtiles.FetchSource(url);
@@ -281,14 +293,13 @@ const BASE = qs.get("base") ||
   "https://data.source.coop/portolan-mirrors/firms-catalog/detections";
 // Protomaps' OpenStreetMap basemap, on the same origin as the data, so the
 // background comes from Source Cooperative rather than a third party.
-const BASEMAP = "https://data.source.coop/protomaps/openstreetmap/tiles/v3.pmtiles";
-
-// The basemap is the same shape of workload -- one URL, a viewport of tiles at
-// a time -- so it is registered on the protocol rather than left to the
-// instance MapLibre would build for itself.
-const _pmProtocol = new pmtiles.Protocol();
-_pmProtocol.add(openPMTiles(BASEMAP));
-maplibregl.addProtocol("pmtiles", _pmProtocol.tile);
+// CARTO's Dark Matter, by URL rather than assembled here: the style is
+// theirs to keep current, and its TileJSON carries the CARTO and
+// OpenStreetMap attribution, so MapLibre renders the credit without it being
+// restated. Ordinary {z}/{x}/{y} vector tiles, so none of the range-read
+// trouble above applies to the background.
+const BASEMAP_STYLE =
+  "https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json";
 
 const AGG_LAYER = "aggregate", PT_LAYER = "features";
 
@@ -423,17 +434,7 @@ if (/^#-?\d+(\.\d+)?\//.test(location.hash))
 
 const map = new maplibregl.Map({
   container: "map", hash: "map",
-  style: {
-    version: 8,
-    glyphs: "https://protomaps.github.io/basemaps-assets/fonts/{fontstack}/{range}.pbf",
-    sprite: "https://protomaps.github.io/basemaps-assets/sprites/v4/dark",
-    sources: {protomaps: {type: "vector", url: "pmtiles://" + BASEMAP,
-      attribution: '<a href="https://protomaps.com">Protomaps</a> &copy; ' +
-                   '<a href="https://openstreetmap.org">OpenStreetMap</a>'}},
-    // layers() wants the theme OBJECT from namedTheme(), not the flavour name.
-    layers: protomaps_themes_base.layers(
-      "protomaps", protomaps_themes_base.namedTheme("dark"), {lang: "en"}),
-  },
+  style: BASEMAP_STYLE,
   center: [20, 10], zoom: 2, minZoom: 0, renderWorldCopies: true,
 });
 window._map = map;
@@ -1717,6 +1718,54 @@ function writeHash() {
                          `${location.pathname}${location.search}#${frag}`);
   }, 250);
 }
+
+// -------------------------------------------------------- the basemap labels
+
+/**
+ * Place labels follow the zoom until someone decides otherwise.
+ *
+ * Zoomed out the cells cover whole continents, and a layer of country names
+ * sits on top of the thing being read; zoomed in, the labels are how you tell
+ * which valley is burning. So the default belongs to the zoom. The checkbox
+ * pins it, and `auto` appears once it is pinned, because a choice made at one
+ * zoom is rarely meant to hold at every other.
+ */
+const LABEL_ZOOM = 6;
+let _labelMode = "auto";          // "auto" | "on" | "off"
+let _labelIds = [];
+let _labelsOn = null;
+
+function labelsWanted() {
+  return _labelMode === "auto" ? map.getZoom() >= LABEL_ZOOM
+                               : _labelMode === "on";
+}
+
+function applyLabels() {
+  el("labelauto").hidden = _labelMode === "auto";
+  if (!_labelIds.length) return;
+  const on = labelsWanted();
+  el("labels").checked = on;
+  if (on === _labelsOn) return;   // twenty-seven setLayoutProperty calls a frame
+  _labelsOn = on;
+  for (const id of _labelIds)
+    map.setLayoutProperty(id, "visibility", on ? "visible" : "none");
+}
+
+// Read the label layers once the style is in. Asking the style on every zoom
+// would walk ninety-odd layers a frame to learn something that cannot change.
+map.on("style.load", () => {
+  _labelIds = map.getStyle().layers
+    .filter(l => l.type === "symbol" && (l.layout || {})["text-field"])
+    .map(l => l.id);
+  _labelsOn = null;               // the fresh style has them all visible
+  applyLabels();
+});
+map.on("zoom", applyLabels);
+el("labels").onchange = e => {
+  _labelMode = e.target.checked ? "on" : "off";
+  applyLabels();
+};
+el("labelauto").onclick = () => { _labelMode = "auto"; applyLabels(); };
 
 // -------------------------------------------------------------- the timeline
 
