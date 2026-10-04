@@ -90,7 +90,10 @@
  .legend{display:flex;flex-direction:column;gap:2px}
  .lgrow{display:flex;align-items:center;gap:7px;font-size:10.5px;color:var(--dim)}
  .sw{width:15px;height:10px;border-radius:2px;flex:none}
- #track{display:block;width:100%;height:104px;outline:none}
+ /* The bars plus timeline.js's own 15px label strip. Low enough that the map
+    keeps most of the window, tall enough that a quiet month is still a bar
+    and not a line. */
+ #track{display:block;width:100%;height:78px;outline:none}
  #track:focus-visible{box-shadow:inset 0 0 0 1px var(--acc)}
  .hint{background:none;border:0;color:var(--acc);font:inherit;font-size:10.5px;
    cursor:pointer;padding:0;text-decoration:underline;display:none}
@@ -448,7 +451,10 @@ if (/^#-?\d+(\.\d+)?\//.test(location.hash))
 const map = new maplibregl.Map({
   container: "map", hash: "map",
   style: BASEMAP_STYLE,
-  center: [20, 10], zoom: 2, minZoom: 0, renderWorldCopies: true,
+  // #map=1.37/30.1/-14.2 -- the whole fire-bearing world in one frame, with
+  // the Arctic and the Southern Ocean cropped off the ends where nothing
+  // burns, and the Atlantic in the middle so neither side is cut.
+  center: [-14.2, 30.1], zoom: 1.37, minZoom: 0, renderWorldCopies: true,
 });
 window._map = map;
 
