@@ -1409,8 +1409,13 @@ function buildLayers() {
  * archive, because the overlap is real: the rolling window and the year both
  * hold the last few days and disagree on the most recent one, where the
  * window is complete and the year partial.
+ *
+ * `method` is how the caches are asked, and it has to match how the drawing
+ * archive was asked. At the points band the same tiles carry detections
+ * rather than cells, and counting one against the other would mix two
+ * different things into one bar.
  */
-function mergeMountedBuckets(buckets, band, view) {
+function mergeMountedBuckets(buckets, band, view, method = "histogram") {
   if (S.mounted.size < 2) return;
   const held = [...S.mounted.entries()]
     .filter(([, m]) => m.unit === S.axis.unit)
@@ -1418,7 +1423,7 @@ function mergeMountedBuckets(buckets, band, view) {
   for (const [id, cache] of _caches) {
     if (id === S.id || !S.mounted.has(id)) continue;
     let h;
-    try { h = cache.histogram(...zoomRange(band), view); } catch { continue; }
+    try { h = cache[method](...zoomRange(band), view); } catch { continue; }
     for (const key in h.buckets) {
       // Only where this archive is the owner. Without that test a day both
       // archives hold would be added twice.
@@ -1629,6 +1634,12 @@ function computeHistogram() {
   if (inPoints()) {
     const h = S.tiles.pointHistogram(...zoomRange(band), view);
     buckets = h.buckets; n = h.points; mode = "points";
+    // The same fold as the cells below, and for the same reason. Without it
+    // the bars at this zoom were whatever the drawing archive held, so a
+    // rolling window over a year's axis drew seven days and left the other
+    // fifty-one weeks empty -- with the year's detections already loaded,
+    // already in view, and already in a cache nobody asked.
+    mergeMountedBuckets(buckets, band, view, "pointHistogram");
   } else if (statsDriven(band)) {
     const h = STATS.histogram(view.w, view.s, view.e, view.n, lngOverlaps);
     buckets = h.buckets; n = h.cells; mode = "stats";
@@ -1673,6 +1684,7 @@ function scheduleHistogram() {
 // A handle for tests and the console. Read-only by convention.
 window.__explorer = {get map() { return map; }, get tl() { return tl; },
                      get state() { return S; }, get overlay() { return overlay; },
+                     get caches() { return _caches; },
                      get tileBytes() { return _tileBytesUsed; }};
 
 map.on("moveend", scheduleHistogram);
