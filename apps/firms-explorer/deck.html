@@ -107,18 +107,28 @@
   .auto{display:inline-flex;align-items:center;gap:4px;color:var(--dim);
         font-size:11px;cursor:pointer;user-select:none}
   .auto input{accent-color:var(--acc);cursor:pointer;margin:0}
-  /* The about box, which the header toggles. The panel widens while it is
-     open: 236px is right for a legend and too narrow for prose. */
+  /* The about box, a dialog over the middle of the map. It used to live in the
+     side panel, where 236px of width turned every sentence into three lines
+     and the prose pushed the legend off the screen. Centred, it gets the width
+     prose wants and shuts again without disturbing anything. */
   .link{background:none;border:0;color:var(--acc);font:inherit;font-size:10.5px;
         cursor:pointer;padding:0;margin-top:5px;text-decoration:underline}
-  .over.wide{width:330px}
-  /* A hidden element is still :last-child, so the legend would keep a divider
-     with nothing under it while the box is shut. */
-  .sec:has(+ .about[hidden]){border-bottom:0}
-  .about p{margin:0 0 9px;font-size:11px;line-height:1.55;color:var(--dim)}
+  .modal{position:absolute;inset:0;z-index:9;display:flex;align-items:center;
+         justify-content:center;padding:24px;background:rgba(5,8,12,.62)}
+  .modal[hidden]{display:none}
+  .about{position:relative;width:min(720px,100%);max-height:100%;overflow:auto;
+         background:var(--panel);border:1px solid var(--line);border-radius:12px;
+         box-shadow:0 18px 50px rgba(0,0,0,.7);padding:18px 22px 20px}
+  .about h2{margin:0 36px 12px 0;font-size:14px}
+  .about p{margin:0 0 9px;font-size:11.5px;line-height:1.6;color:var(--dim)}
   .about p:last-child{margin-bottom:0}
-  .about .grp{margin:12px 0 5px}
+  .about .grp{margin:14px 0 5px}
   .about a{color:var(--acc)}
+  /* Top right of the dialog, and big enough to hit on a phone. */
+  .about .x{position:absolute;top:10px;right:10px;background:none;border:0;
+            color:var(--dim);font:inherit;font-size:15px;line-height:1;
+            cursor:pointer;padding:6px 8px;border-radius:6px}
+  .about .x:hover{color:var(--fg);background:var(--inset)}
   .optrow{display:flex;align-items:center;justify-content:space-between;gap:8px}
   .link.tiny{margin-top:0;font-size:10px}
 </style></head><body>
@@ -129,7 +139,7 @@
     <div class="hd"><h1>FIRMS explorer</h1>
       <div class="sub" id="hdsub">loading…</div>
       <button type="button" class="link" id="aboutbtn"
-        aria-expanded="false" aria-controls="about">About this map</button></div>
+        aria-haspopup="dialog">About this map</button></div>
     <div class="sec">
       <div class="grp" id="lgtitle">Detections in selection</div>
       <div class="legend" id="lg" style="margin-top:7px"></div>
@@ -143,55 +153,58 @@
       <button type="button" class="link tiny" id="labelauto" hidden
         title="Go back to following the zoom">auto</button>
     </div>
-    <div class="sec about" id="about" hidden>
+  </div>
+  <div class="modal" id="aboutwrap" hidden>
+    <div class="about" id="about" role="dialog" aria-modal="true"
+         aria-labelledby="abouthd">
+      <button type="button" class="x" id="aboutx" aria-label="Close">✕</button>
+      <h2 id="abouthd">About this map</h2>
       <p>Every active fire detection NASA has published since November 2000 —
-      about 631 million of them, from MODIS on Terra and Aqua (1&nbsp;km) and
-      VIIRS on Suomi-NPP, NOAA-20 and NOAA-21 (375&nbsp;m). New detections are
-      appended hourly, within a few hours of the satellite pass.</p>
+      about 631 million of them. New detections are appended hourly, within a
+      few hours of the satellite pass.</p>
 
-      <div class="grp">Reading the map</div>
-      <p>Zoomed out, the map draws <b>cells</b> rather than detections: the
-      detections are aggregated onto an <a href="https://a5geo.org" target="_blank" rel="noopener">A5</a>
-      grid, and each cell is coloured by how many of them fall inside it
-      <i>and</i> inside the time selection — so the colours change as you move
-      the selection. The grid gets finer as you zoom in, and far enough in the
-      individual detections appear, coloured by fire radiative power. Click a
-      cell for its numbers.</p>
+      <p>The data is served from a <a href="https://www.portolan-sdi.org" target="_blank" rel="noopener">Portolan</a>
+      mirror of NASA FIRMS, consisting solely of a STAC catalog of GeoParquet
+      files. The app is a full <a href="https://cloudnativegeo.org" target="_blank" rel="noopener">CNG</a>
+      implementation — no server, just files. Explore the data in <a
+      href="https://browser.portolan-sdi.org/#/external/data.source.coop/portolan-mirrors/firms-catalog/catalog.json" target="_blank" rel="noopener">Portolan
+      browser</a>, bulk query with DuckDB, GDAL/OGR, etc., or access the <a
+      href="https://github.com/portolan-mirrors/firms-catalog" target="_blank" rel="noopener">source
+      code</a> in the GitHub repository. Learn more in the <a
+      href="https://www.portolan-sdi.org/blog/building-portolan-firms" target="_blank" rel="noopener">Building
+      Portolan: FIRMS</a> blog post.</p>
 
-      <div class="grp">Reading the timeline</div>
-      <p>The bars total the detections currently in view, one bar per bucket.
-      Drag the highlighted band to move the selection, or its edges to resize
-      it. <b>+</b> and <b>−</b> zoom the time axis in and out, <b>Fit</b>
-      frames the selection, and <b>Span</b> jumps to a fixed window. Zoom in
-      far enough and the monthly all-time archive is swapped for that year's
-      daily one automatically; untick <b>auto</b> to stay put, or pick an
-      archive yourself.</p>
+      <div class="grp">Reading the map and timeline</div>
+      <p>Zoomed out, the map draws <b>cells</b> rather than detections,
+      aggregated onto an <a href="https://a5geo.org" target="_blank" rel="noopener">A5</a>
+      grid and coloured by how many fall inside the cell <i>and</i> inside the
+      time selection — so the colours move with the selection. The grid gets
+      finer as you zoom in, and far enough in the detections themselves appear,
+      coloured by fire radiative power. Click a cell for its numbers.</p>
+      <p>The timeline totals the detections in view, one bar per bucket. Drag
+      the highlighted band to move the selection or its edges to resize it;
+      <b>+</b> and <b>−</b> zoom the time axis, <b>Fit</b> frames the
+      selection, <b>Span</b> jumps to a fixed window. Zoom in far enough and
+      the monthly all-time archive is swapped for that year's daily one;
+      untick <b>auto</b> to stay put, or pick an archive yourself.</p>
 
       <div class="grp">The data</div>
       <p>Source: <a href="https://firms.modaps.eosdis.nasa.gov/" target="_blank" rel="noopener">NASA
-      FIRMS</a>, the Fire Information for Resource Management System. We
-      acknowledge the use of data and imagery from FIRMS, part of NASA's Earth
-      Science Data and Information System (ESDIS). Published under CC0-1.0;
+      FIRMS</a>, the Fire Information for Resource Management System. The
+      detections come from MODIS on Terra and Aqua (1&nbsp;km) and VIIRS on
+      Suomi-NPP, NOAA-20 and NOAA-21 (375&nbsp;m).</p>
+      <p>We acknowledge the use of data and imagery from FIRMS, part of NASA's <a
+      href="https://www.earthdata.nasa.gov/about/esdis" target="_blank" rel="noopener">Earth
+      Science Data and Information System (ESDIS)</a>. Published under CC0-1.0;
       NASA is the producer, and any mistake in what you see here is this
       mirror's, not theirs.</p>
-      <p>The map reads a <a href="https://www.portolan-sdi.org" target="_blank" rel="noopener">Portolan</a>
-      catalog — a STAC catalog of cloud-native files with no server behind it,
-      hosted on <a
-      href="https://source.coop/portolan-mirrors/firms-catalog" target="_blank" rel="noopener">Source
-      Cooperative</a>. Browse it in the <a
-      href="https://browser.portolan-sdi.org/#/external/data.source.coop/portolan-mirrors/firms-catalog/catalog.json" target="_blank" rel="noopener">Portolan
-      browser</a>, query the GeoParquet directly from the <a
-      href="https://data.source.coop/portolan-mirrors/firms-catalog/catalog.json" target="_blank" rel="noopener">STAC
-      root</a>, or read how it is built in the <a
-      href="https://github.com/portolan-mirrors/firms-catalog" target="_blank" rel="noopener">catalog
-      repository</a>.</p>
 
       <div class="grp">Built with</div>
       <p><a href="https://deck.gl" target="_blank" rel="noopener">deck.gl</a> ·
       <a href="https://maplibre.org/maplibre-gl-js/docs/" target="_blank" rel="noopener">MapLibre GL JS</a> ·
       <a href="https://docs.protomaps.com/pmtiles/" target="_blank" rel="noopener">PMTiles</a> ·
       <a href="https://a5geo.org" target="_blank" rel="noopener">A5</a> · basemap by
-      <a href="https://protomaps.com" target="_blank" rel="noopener">Protomaps</a> from
+      <a href="https://carto.com" target="_blank" rel="noopener">CARTO</a> from
       <a href="https://openstreetmap.org" target="_blank" rel="noopener">OpenStreetMap</a>.</p>
     </div>
   </div>
@@ -2205,26 +2218,44 @@ el("archive").onchange = async e => {
   tl.setDomainKeys(S.axis.min, S.axis.max);
 };
 
-// The about box. Prose needs more width than a legend, so the panel grows
-// while it is open rather than wrapping every line onto three. The panel is
-// scrolled back to the top rather than the box scrolled into view: the box is
-// taller than the screen either way, and scrolling to it takes the map's own
-// name off the top of its own panel.
-function showAbout(open) {
-  el("about").hidden = !open;
-  el("aboutbtn").setAttribute("aria-expanded", String(open));
-  el("aboutbtn").textContent = open ? "Close" : "About this map";
-  const panel = document.querySelector(".over");
-  panel.classList.toggle("wide", open);
-  panel.scrollTop = 0;
+// The about box, a dialog in the middle of the map. It opens itself on a
+// first visit: a map of coloured cells over a time axis does not explain
+// itself, and the paragraph that does is the one nobody clicks for. A reader
+// who has already had it gets the map instead, so the flag is remembered.
+const ABOUT_SEEN = "firms-explorer:about-seen";
+
+/*
+ * Reading storage can throw as well as writing it -- a browser set to block
+ * site data refuses the property itself, not just the write -- and this box
+ * is not worth a page that stops loading. A refusal reads as a first visit
+ * every time, which is the harmless end of being wrong.
+ */
+function aboutSeen() {
+  try { return localStorage.getItem(ABOUT_SEEN) === "1"; } catch { return false; }
 }
-el("aboutbtn").onclick = () => showAbout(el("about").hidden);
+function rememberAbout() {
+  try { localStorage.setItem(ABOUT_SEEN, "1"); } catch { /* blocked */ }
+}
+
+function showAbout(open) {
+  el("aboutwrap").hidden = !open;
+  if (open) { rememberAbout(); el("aboutx").focus(); }
+  else el("aboutbtn").focus();
+}
+el("aboutbtn").onclick = () => showAbout(true);
+el("aboutx").onclick = () => showAbout(false);
+// The backdrop is the wrapper, and a click inside the dialog never reaches it,
+// so this fires for the margin around the box and nothing else.
+el("aboutwrap").onclick = e => {
+  if (e.target === el("aboutwrap")) showAbout(false);
+};
 // Esc closes it, and only it: the track's own key handling is untouched
 // because the box is either open and swallows the key, or shut and never sees
 // it.
 addEventListener("keydown", e => {
-  if (e.key === "Escape" && !el("about").hidden) { showAbout(false); el("track").focus(); }
+  if (e.key === "Escape" && !el("aboutwrap").hidden) showAbout(false);
 });
+if (!aboutSeen()) showAbout(true);
 
 // month vs date decides which native picker appears, so it follows the axis.
 function syncInputs() {
