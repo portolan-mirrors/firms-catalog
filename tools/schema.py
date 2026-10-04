@@ -40,7 +40,8 @@ COLUMNS = [
      "important grouping column: resolution, confidence encoding and the "
      "brightness columns all differ by sensor, so a query that mixes them "
      "without saying so is usually wrong. MODIS runs from November 2000, "
-     f"VIIRS from January 2012. See {MODIS_INSTRUMENT} and {VIIRS_INSTRUMENT}."),
+     f"VIIRS from January 2012. See the [MODIS]({MODIS_INSTRUMENT}) and "
+     f"[VIIRS]({VIIRS_INSTRUMENT}) instrument pages."),
     ("satellite", "string",
      "Platform name: Terra, Aqua, Suomi-NPP, NOAA-20 or NOAA-21. Expanded here "
      "from the short codes FIRMS publishes. Each platform has its own overpass "
@@ -59,7 +60,7 @@ COLUMNS = [
      "long time series can span more than one."),
     ("brightness", "double",
      "MODIS channel 21/22 brightness temperature, kelvin. NULL for VIIRS rows. "
-     f"Defined in the MODIS fire user guide: {MODIS_GUIDE}"),
+     f"Defined in the [MODIS fire user guide]({MODIS_GUIDE})."),
     ("bright_t31", "double",
      "MODIS channel 31 brightness temperature, kelvin. NULL for VIIRS rows. "
      "Used with `brightness` in the MODIS detection algorithm; the contrast "
@@ -87,7 +88,7 @@ COLUMNS = [
      "flagged pixels. Integrate FRP over time to approximate total radiated "
      "energy and hence fuel consumed. Not comparable pixel-for-pixel across "
      "sensors of different resolution, and suppressed by cloud and heavy "
-     f"smoke. Derivation is in the MODIS fire user guide: {MODIS_GUIDE}"),
+     f"smoke. Derivation is in the [MODIS fire user guide]({MODIS_GUIDE})."),
     ("daynight", "string",
      "`D` for a daytime overpass, `N` for night. Worth splitting on: night "
      "detections have a cleaner thermal background and behave differently from "
@@ -99,7 +100,7 @@ COLUMNS = [
      "measure of how sure the ALGORITHM is that the pixel is a fire, not of "
      "how large or how real the fire is, and it is intended for filtering "
      "rather than for weighting. A common starting point is to drop `l` and "
-     f"MODIS below 30 for analysis. Defined in the FIRMS FAQ: {FAQ}"),
+     f"MODIS below 30 for analysis. Defined in the [FIRMS FAQ]({FAQ})."),
     ("confidence_pct", "int32",
      "Numeric confidence 0-100, added here so MODIS rows can be filtered "
      "arithmetically. MODIS rows only; NULL for VIIRS, which has no numeric "
@@ -109,7 +110,7 @@ COLUMNS = [
      "flares, industrial heat), 3 offshore. NULL for EVERY near-real-time row, "
      "because FIRMS does not attribute type in near-real-time -- so a filter "
      "on `type = 0` silently drops the most recent months unless you also "
-     f"allow NULL. Defined in the FIRMS FAQ: {FAQ}"),
+     f"allow NULL. Defined in the [FIRMS FAQ]({FAQ})."),
 ]
 
 

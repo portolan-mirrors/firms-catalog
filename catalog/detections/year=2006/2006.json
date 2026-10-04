@@ -65,7 +65,7 @@
       {
         "name": "sensor",
         "type": "string",
-        "description": "MODIS, VIIRS_SNPP, VIIRS_NOAA20 or VIIRS_NOAA21. The single most important grouping column: resolution, confidence encoding and the brightness columns all differ by sensor, so a query that mixes them without saying so is usually wrong. MODIS runs from November 2000, VIIRS from January 2012. See https://www.earthdata.nasa.gov/data/instruments/modis and https://www.earthdata.nasa.gov/data/instruments/viirs."
+        "description": "MODIS, VIIRS_SNPP, VIIRS_NOAA20 or VIIRS_NOAA21. The single most important grouping column: resolution, confidence encoding and the brightness columns all differ by sensor, so a query that mixes them without saying so is usually wrong. MODIS runs from November 2000, VIIRS from January 2012. See the [MODIS](https://www.earthdata.nasa.gov/data/instruments/modis) and [VIIRS](https://www.earthdata.nasa.gov/data/instruments/viirs) instrument pages."
       },
       {
         "name": "satellite",
@@ -90,7 +90,7 @@
       {
         "name": "brightness",
         "type": "double",
-        "description": "MODIS channel 21/22 brightness temperature, kelvin. NULL for VIIRS rows. Defined in the MODIS fire user guide: https://modis-fire.umd.edu/files/MODIS_C6_C6.1_Fire_User_Guide_1.0.pdf"
+        "description": "MODIS channel 21/22 brightness temperature, kelvin. NULL for VIIRS rows. Defined in the [MODIS fire user guide](https://modis-fire.umd.edu/files/MODIS_C6_C6.1_Fire_User_Guide_1.0.pdf)."
       },
       {
         "name": "bright_t31",
@@ -120,7 +120,7 @@
       {
         "name": "frp",
         "type": "double",
-        "description": "Fire radiative power in megawatts: the rate at which the pixel radiates energy, which scales with how much biomass is burning per unit time. It is the closest thing in this table to fire intensity, and it is what to sum when you want a measure of fire ACTIVITY rather than a count of flagged pixels. Integrate FRP over time to approximate total radiated energy and hence fuel consumed. Not comparable pixel-for-pixel across sensors of different resolution, and suppressed by cloud and heavy smoke. Derivation is in the MODIS fire user guide: https://modis-fire.umd.edu/files/MODIS_C6_C6.1_Fire_User_Guide_1.0.pdf"
+        "description": "Fire radiative power in megawatts: the rate at which the pixel radiates energy, which scales with how much biomass is burning per unit time. It is the closest thing in this table to fire intensity, and it is what to sum when you want a measure of fire ACTIVITY rather than a count of flagged pixels. Integrate FRP over time to approximate total radiated energy and hence fuel consumed. Not comparable pixel-for-pixel across sensors of different resolution, and suppressed by cloud and heavy smoke. Derivation is in the [MODIS fire user guide](https://modis-fire.umd.edu/files/MODIS_C6_C6.1_Fire_User_Guide_1.0.pdf)."
       },
       {
         "name": "daynight",
@@ -130,7 +130,7 @@
       {
         "name": "confidence",
         "type": "string",
-        "description": "As published, and NOT comparable across instruments. MODIS gives an integer 0-100; VIIRS gives `l` (low), `n` (nominal) or `h` (high). No crosswalk is published here because none is documented upstream. It is a measure of how sure the ALGORITHM is that the pixel is a fire, not of how large or how real the fire is, and it is intended for filtering rather than for weighting. A common starting point is to drop `l` and MODIS below 30 for analysis. Defined in the FIRMS FAQ: https://www.earthdata.nasa.gov/data/tools/firms/faq"
+        "description": "As published, and NOT comparable across instruments. MODIS gives an integer 0-100; VIIRS gives `l` (low), `n` (nominal) or `h` (high). No crosswalk is published here because none is documented upstream. It is a measure of how sure the ALGORITHM is that the pixel is a fire, not of how large or how real the fire is, and it is intended for filtering rather than for weighting. A common starting point is to drop `l` and MODIS below 30 for analysis. Defined in the [FIRMS FAQ](https://www.earthdata.nasa.gov/data/tools/firms/faq)."
       },
       {
         "name": "confidence_pct",
@@ -140,7 +140,7 @@
       {
         "name": "type",
         "type": "int32",
-        "description": "0 vegetation fire, 1 active volcano, 2 other static land source (gas flares, industrial heat), 3 offshore. NULL for EVERY near-real-time row, because FIRMS does not attribute type in near-real-time -- so a filter on `type = 0` silently drops the most recent months unless you also allow NULL. Defined in the FIRMS FAQ: https://www.earthdata.nasa.gov/data/tools/firms/faq"
+        "description": "0 vegetation fire, 1 active volcano, 2 other static land source (gas flares, industrial heat), 3 offshore. NULL for EVERY near-real-time row, because FIRMS does not attribute type in near-real-time -- so a filter on `type = 0` silently drops the most recent months unless you also allow NULL. Defined in the [FIRMS FAQ](https://www.earthdata.nasa.gov/data/tools/firms/faq)."
       }
     ],
     "firms:sensors": [
