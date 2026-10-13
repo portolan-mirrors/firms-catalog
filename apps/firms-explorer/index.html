@@ -126,6 +126,7 @@ import {Timeline, makeAxis, formatKey, keyToISO, isoToKey, COUNT_RAMP}
 import {bandAt, chooseArchive, keyDayRange, parseJSONish, pointsMinZoom,
         pyramid, shippedStops, timelineFromMetadata} from "./archives.js";
 import {Stats} from "./stats.js";
+import {keepMapSized} from "./map-size.js";
 
 maplibregl.addProtocol("pmtiles", new pmtiles.Protocol().tile);
 
@@ -287,6 +288,7 @@ const map = new maplibregl.Map({
   center: [20, 10], zoom: 2, minZoom: 0, renderWorldCopies: true,
 });
 window._map = map;
+keepMapSized(map);
 
 /** Read an archive's own description of itself, or nothing if it will not load. */
 async function readArchive(url) {

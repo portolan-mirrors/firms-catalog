@@ -178,6 +178,7 @@ import {axisFor, bestCover, covers, gapsIn, ownerOf, planMounts} from "./mounted
 import {Stats} from "./stats.js";
 import {DECK_TILE_SIZE, TileCache, bucketIndex, countFor, fillFor, lngOverlaps,
         selectionPlan, tileZoom} from "./deck-cells.js";
+import {keepMapSized} from "./map-size.js";
 
 maplibregl.addProtocol("pmtiles", new pmtiles.Protocol().tile);
 
@@ -349,6 +350,7 @@ const map = new maplibregl.Map({
   center: [20, 10], zoom: 2, minZoom: 0, renderWorldCopies: true,
 });
 window._map = map;
+keepMapSized(map);
 
 // Overlaid rather than interleaved, so the cells draw over the labels the way
 // the MapLibre page's fill layer does. Interleaving is a one-flag change once

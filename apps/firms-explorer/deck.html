@@ -261,6 +261,7 @@ import {axisFor, bestCover, covers, gapsIn, ownerOf, planMounts} from "./mounted
 import {Stats} from "./stats.js";
 import {DECK_TILE_SIZE, TileCache, bucketIndex, countFor, fillFor, lngOverlaps,
         selectionPlan, tileZoom} from "./deck-cells.js";
+import {keepMapSized} from "./map-size.js";
 
 /**
  * A PMTiles archive read with Chrome's HTTP cache out of the path.
@@ -457,6 +458,7 @@ const map = new maplibregl.Map({
   center: [-14.2, 30.1], zoom: 1.37, minZoom: 0, renderWorldCopies: true,
 });
 window._map = map;
+keepMapSized(map);
 
 // Interleaved, so the cells go into MapLibre's own layer stack rather than
 // onto a canvas above it. That is what lets the place labels draw ON TOP of

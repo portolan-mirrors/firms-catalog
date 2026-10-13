@@ -22,6 +22,7 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const TESTS = [
   "apps/firms-explorer/archives.test.mjs",
   "apps/firms-explorer/deck-cells.test.mjs",
+  "apps/firms-explorer/map-size.test.mjs",
   "apps/firms-explorer/mounted.test.mjs",
   "apps/firms-explorer/timeline.test.mjs",
 ];
