@@ -1,6 +1,7 @@
 # Active Fire Detections (MODIS and VIIRS)
 
-**631,469,093 detections. November 2000 to today. Global. Updated hourly.**
+**More than 630 million detections. November 2000 to today. Global. Updated
+hourly.** The live count is `table:row_count` on the collection.
 
 Every active fire and thermal anomaly NASA FIRMS has published, from five
 satellites, as one year-partitioned GeoParquet 2.0 table you can query in
@@ -129,9 +130,9 @@ What this kind of data actually supports, and what this catalog is shaped for:
 - **Detecting burning regimes** — agricultural burning, deforestation fronts,
   and persistent industrial heat separate cleanly with `type` and the diurnal
   pattern in `daynight`.
-- **Joining fire to other geographies** — the table is Hilbert-ordered within
-  each month, so a spatial predicate prunes well; see
-  [AGENTS.md](AGENTS.md) for the join recipes.
+- **Joining fire to other geographies** — the table is Hilbert-ordered, so a
+  spatial predicate prunes well; see [AGENTS.md](AGENTS.md) for the join
+  recipes.
 
 ## Not for
 
@@ -166,10 +167,12 @@ decide whether a query is right:
 
 ```sql
 INSTALL spatial; LOAD spatial; INSTALL httpfs; LOAD httpfs;
+-- The bucket name contains dots, so TLS needs path-style addressing.
+SET s3_region = 'us-west-2'; SET s3_url_style = 'path';
 
 SELECT sensor, count(*) AS detections, round(avg(frp), 1) AS mean_frp_mw
 FROM read_parquet(
-  's3://portolan-mirrors/firms-catalog/detections/year=*/detections.parquet',
+  's3://us-west-2.opendata.source.coop/portolan-mirrors/firms-catalog/detections/year=*/detections.parquet',
   hive_partitioning = true)
 GROUP BY sensor ORDER BY detections DESC;
 ```
@@ -192,7 +195,7 @@ detections/alltime-r10.parquet
 ```sql
 -- Where has the most fire burned since 2000? Reads 3.2 MB.
 SELECT a5_cell, count, round(sum_frp) AS frp
-FROM 's3://portolan-mirrors/firms-catalog/detections/alltime-r5.parquet'
+FROM 'https://data.source.coop/portolan-mirrors/firms-catalog/detections/alltime-r5.parquet'
 ORDER BY count DESC LIMIT 10;
 ```
 
