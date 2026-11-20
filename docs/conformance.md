@@ -14,15 +14,13 @@ widened allow-list is a false claim about what this catalog conforms to.
 
 ## The rashid version floor
 
-The gate needs rashid `>=0.1.8,<0.2.0`. It reads `rashid --version` and fails
+The gate needs rashid `>=0.4.0,<0.5.0`. It reads `rashid --version` and fails
 outside that range. It also fails when rashid is absent, and prints the install
 command. A skip would report a green run for a catalog that no validator read.
 
-Rules PTL-LNK-007, PTL-LNK-008, PTL-LNK-009 and PTL-AST-006 do not exist below
-0.1.5, and the gate asserts all four, so that is the hard minimum. The floor
-sits at 0.1.8 because that was the newest release when this catalog was
-configured; taking the newest at setup is what stops a template-derived repo
-inheriting a stale one.
+The floor is 0.4.0 because it is the first release that bundles the Portolan
+v0.3.0 profile this catalog declares. An older rashid does not know the v0.3.0
+schema URI, so the v0.3 rules never run against the catalog.
 
 Four places name this range: the gate, the CI install step, the two data
 workflows, and this page. They must agree. They drifted once -- CI installed
@@ -30,9 +28,19 @@ workflows, and this page. They must agree. They drifted once -- CI installed
 resolves to the newest, and would have failed confusingly the day 0.1.8 was
 yanked.
 
-The upper bound stops an unreviewed 0.2 rule set from changing what this gate
-means. Raise both bounds together when you move to 0.2, and read the new rules
+The upper bound stops an unreviewed 0.5 rule set from changing what this gate
+means. Raise both bounds together when you move to 0.5, and read the new rules
 first.
+
+## File metadata coverage
+
+Every asset carries `file:size`. `file:checksum` covers the assets whose bytes
+are local when a generator runs: the styles, the thumbnail, the logo, and the
+two collection tilesets after a scheduled refresh. The published year files
+and their aggregates gain a checksum when a consolidation stages that year's
+bytes; hashing the published copies again would download tens of gigabytes
+for values the next consolidation would replace. Until then those assets
+carry `file:size` alone, which rashid reports as PTL-AST-003 warnings.
 
 This file also records workarounds for the other validator CI runs. Those are
 not conformance debts, because the catalog is correct and the validator is not.

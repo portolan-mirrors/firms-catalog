@@ -38,22 +38,20 @@ ACCEPTED: set[str] = set()
 config = load_config()
 target = ROOT / config["publish_dir"]
 
-# Rules PTL-LNK-007, PTL-LNK-008, PTL-LNK-009 and PTL-AST-006 do not exist
-# below rashid 0.1.5, and this gate asserts all four: an older rashid reports a
-# pass for a catalog it never checked against them. The floor sits at 0.1.8
-# rather than 0.1.5 because that was the newest release when this catalog was
-# configured, and taking the newest at setup is what keeps a template-derived
-# repo from inheriting a stale one. The upper bound stops an unreviewed 0.2
-# rule set from quietly changing what this gate means.
+# The floor is rashid 0.4.0, the first release that bundles the Portolan
+# v0.3.0 profile this catalog declares: an older rashid does not know the
+# v0.3.0 schema URI, so the v0.3 rules never run against the catalog. The
+# upper bound stops an unreviewed 0.5 rule set from quietly changing what
+# this gate means.
 #
 # Every other place that names the range -- the CI install step, the two data
-# workflows, and docs/conformance.md -- must say 0.1.8 too. They drifted once
+# workflows, and docs/conformance.md -- must say 0.4.0 too. They drifted once
 # already: CI installed 0.1.5 while this gate demanded 0.1.8, which passed only
 # because pip resolves to the newest and would have failed confusingly the day
 # 0.1.8 was yanked.
-MIN_VERSION = (0, 1, 8)
-MAX_VERSION = (0, 2, 0)
-SPEC = "rashid>=0.1.8,<0.2.0"
+MIN_VERSION = (0, 4, 0)
+MAX_VERSION = (0, 5, 0)
+SPEC = "rashid>=0.4.0,<0.5.0"
 INSTALL = f"python -m pip install '{SPEC}'"
 
 

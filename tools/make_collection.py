@@ -22,6 +22,15 @@ import urllib.request
 import duckdb
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from asset_text import (  # noqa: E402
+    LOGO_DESCRIPTION,
+    PMTILES_ALLTIME_DESCRIPTION,
+    PMTILES_LATEST_DESCRIPTION,
+    STYLE_DESCRIPTIONS,
+    STYLE_FALLBACK,
+    THUMBNAIL_DESCRIPTION,
+    alltime_aggregate_description,
+)
 from schema import stac_columns  # noqa: E402
 
 # Source Cooperative's CDN 403s the default urllib agent, which returns None
@@ -91,7 +100,8 @@ def main() -> int:
                     help="all-time archive filename; empty to omit")
     # Filenames only. Each asset title is read from the style's own "name", so
     # the name lives in one place instead of drifting between the two tools.
-    ap.add_argument("--styles", default="default.json,avg-frp.json")
+    ap.add_argument("--styles",
+                    default="default.json,avg-frp.json,day-night.json")
     ap.add_argument("--thumbnail", default="detections.thumb.jpg")
     ap.add_argument("--logo", default="detections.logo.png",
                     help="collection logo; empty to omit")
@@ -193,15 +203,21 @@ def main() -> int:
     # Styles are collection-level assets with the style role, exactly one of
     # which also carries default (PORTO-CORE-069, PORTO-CORE-070).
     def file_meta(rel: str) -> dict:
-        """file:size and file:checksum for an asset that ships in the catalog.
+        """file:size and file:checksum for an asset whose bytes are local.
 
         checksum is a multihash: '1220' (sha2-256, 32 bytes) then the digest.
+        Looks in the catalog directory first, then under --data: the tilesets
+        are staged with the data and uploaded by upload_data.py, so at refresh
+        time their bytes sit beside the data rather than next to
+        collection.json.
         """
-        f = Path(a.out).parent / rel
-        if not f.is_file():
-            return {}
-        h = hashlib.sha256(f.read_bytes()).hexdigest()
-        return {"file:size": f.stat().st_size, "file:checksum": "1220" + h}
+        for base in (Path(a.out).parent, data):
+            f = base / rel
+            if f.is_file():
+                h = hashlib.sha256(f.read_bytes()).hexdigest()
+                return {"file:size": f.stat().st_size,
+                        "file:checksum": "1220" + h}
+        return {}
 
     assets = {}
     styles = [x for x in a.styles.split(",") if x]
@@ -215,6 +231,8 @@ def main() -> int:
             "href": f"./styles/{fn}",
             "type": "application/vnd.mapbox.style+json",
             "title": title or fn,
+            "description": STYLE_DESCRIPTIONS.get(Path(fn).stem,
+                                                  STYLE_FALLBACK),
             "roles": roles,
             **file_meta(f"styles/{fn}"),
         }
@@ -225,8 +243,10 @@ def main() -> int:
         "href": f"./{a.pmtiles}",
         "type": "application/vnd.pmtiles",
         "title": "Fire detections, aggregate bands plus raw points",
+        "description": PMTILES_LATEST_DESCRIPTION,
         "roles": ["visual", "data"],
         "pmtiles:layers": [x for x in a.pmtiles_layers.split(",") if x],
+        **file_meta(a.pmtiles),
     }
 
     # The all-time archive is a second visual asset rather than a replacement.
@@ -240,8 +260,10 @@ def main() -> int:
             "href": f"./{a.alltime}",
             "type": "application/vnd.pmtiles",
             "title": "All years, monthly aggregate, vector tiles",
+            "description": PMTILES_ALLTIME_DESCRIPTION,
             "roles": ["visual", "overview"],
             "pmtiles:layers": ["aggregate"],
+            **file_meta(a.alltime),
         }
 
     # The a5 aggregates behind the all-time tileset, as GeoParquet. Same
@@ -253,23 +275,36 @@ def main() -> int:
     # machine gives a 404 to everyone else, and the asset gate rightly fails
     # the build for it -- the same rule the per-year aggregates follow in
     # make_items.py. The size comes from the bucket for the same reason.
+    # A declared checksum is kept only while the declared size still matches:
+    # the size is the cheap proxy for "the bytes did not change", and a
+    # checksum that outlives its bytes is worse than none.
+    try:
+        prior_assets = json.loads(Path(a.out).read_text()).get("assets", {})
+    except (OSError, json.JSONDecodeError):
+        prior_assets = {}
     for lvl in ALLTIME_AGG_LEVELS:
         rel = f"alltime-r{lvl}.parquet"
         size = remote_size(f"{PUBLIC}/detections/{rel}")
         if not size:
             continue
+        prev = prior_assets.get(f"aggregate-r{lvl}", {})
         assets[f"aggregate-r{lvl}"] = {
             "href": f"./{rel}",
             "type": "application/vnd.apache.parquet",
             "title": f"All years aggregated to a5 r{lvl}, monthly columns",
+            "description": alltime_aggregate_description(lvl),
             "roles": ["data", "aggregate"],
             "file:size": size,
+            **({"file:checksum": prev["file:checksum"]}
+               if prev.get("file:size") == size and "file:checksum" in prev
+               else {}),
         }
 
     assets["thumbnail"] = {
         "href": f"./{a.thumbnail}",
         "type": "image/jpeg",
         "title": "Global fire detection density, rendered from the default style",
+        "description": THUMBNAIL_DESCRIPTION,
         "roles": ["thumbnail"],
         **file_meta(a.thumbnail),
     }
@@ -282,6 +317,7 @@ def main() -> int:
             "href": f"./{a.logo}",
             "type": "image/png",
             "title": "FIRMS mirror logo",
+            "description": LOGO_DESCRIPTION,
             "roles": ["logo"],
             **file_meta(a.logo),
         }
@@ -290,7 +326,7 @@ def main() -> int:
         "type": "Collection",
         "stac_version": "1.1.0",
         "stac_extensions": [
-            "https://schemas.portolan-sdi.org/portolan/v0.2.0/schema.json",
+            "https://schemas.portolan-sdi.org/portolan/v0.3.0/schema.json",
             "https://schemas.portolan-sdi.org/incubating/partition/v1.0.0/schema.json",
             "https://stac-extensions.github.io/table/v1.2.0/schema.json",
             "https://stac-extensions.github.io/web-map-links/v1.3.0/schema.json",
@@ -304,8 +340,9 @@ def main() -> int:
             f"{years[0]} to {years[-1]}. Carries MODIS (Terra and Aqua, 1 km) and VIIRS "
             f"(Suomi-NPP, NOAA-20, NOAA-21, 375 m). Near-real-time rows are appended hourly "
             f"and replaced by science-quality rows as NASA finalizes them; the `quality` "
-            f"column says which is which. Rows are ordered by month and then by a Hilbert "
-            f"index, so a reader prunes on both time and space.\n\n"
+            f"column says which is which. Rows are ordered along a Hilbert "
+            f"curve, so a bounding-box filter prunes row groups; the year in "
+            f"the path is what prunes time.\n\n"
             f"A row is one PIXEL in one overpass that the algorithm flagged as hot -- not a "
             f"fire, not a fire's location, and not its size. Three things mislead people "
             f"most: raw detection counts are not comparable across years, because each new "
@@ -389,6 +426,17 @@ def main() -> int:
         col["links"] += [l for l in prior if l.get("rel") == "item"]
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(col, indent=2) + "\n")
+
+    # The sync checks the whole mirror, so it restamps the root too
+    # (PORTO-CORE-057): a mirror records the sync time even when the source
+    # has not changed. Without this the root's `updated` froze at its last
+    # hand edit while the collection moved hourly.
+    root_path = out.parent.parent / "catalog.json"
+    if root_path.is_file():
+        root = json.loads(root_path.read_text())
+        root["updated"] = now
+        root_path.write_text(json.dumps(root, indent=2) + "\n")
+
     print(f"wrote {out}: {n:,} rows, {len(files)} partition(s), "
           f"bbox=[{minx:.2f},{miny:.2f},{maxx:.2f},{maxy:.2f}]")
     return 0

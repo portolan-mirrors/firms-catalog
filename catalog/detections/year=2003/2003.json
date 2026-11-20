@@ -155,7 +155,8 @@
       "roles": [
         "data"
       ],
-      "file:size": 81014506
+      "file:size": 81014506,
+      "description": "Every MODIS and VIIRS detection acquired in 2003, as one GeoParquet 2.0 file with rows ordered along a Hilbert curve."
     },
     "pmtiles": {
       "href": "./fire-2003.pmtiles",
@@ -165,7 +166,8 @@
         "visual",
         "tiles"
       ],
-      "file:size": 240447074
+      "file:size": 240447074,
+      "description": "Vector tiles for 2003: aggregate cells at low zoom, individual detections at high zoom."
     },
     "style-avg-frp": {
       "href": "./styles/avg-frp.json",
@@ -175,7 +177,8 @@
         "style"
       ],
       "file:size": 2343,
-      "file:checksum": "1220dfe237de642f49841bd3ba7cc189d112e0df71cc5d216adc37d37af88ded9653"
+      "file:checksum": "1220dfe237de642f49841bd3ba7cc189d112e0df71cc5d216adc37d37af88ded9653",
+      "description": "MapLibre style: aggregate cells colored by mean fire radiative power in megawatts."
     },
     "style-default": {
       "href": "./styles/default.json",
@@ -186,7 +189,8 @@
         "default"
       ],
       "file:size": 2347,
-      "file:checksum": "122069cd7c38a3d4f783b330971c388187cc0f3d0a933e40c111ff1401afd0262ab1"
+      "file:checksum": "122069cd7c38a3d4f783b330971c388187cc0f3d0a933e40c111ff1401afd0262ab1",
+      "description": "MapLibre style: aggregate cells colored by detection count, with individual detections drawn at high zoom."
     },
     "aggregate-r5": {
       "href": "./aggregate-r5.parquet",
@@ -196,7 +200,9 @@
         "data",
         "aggregate"
       ],
-      "file:size": 1082989
+      "file:size": 1076328,
+      "description": "The a5 resolution-5 grid behind the 2003 tileset, as GeoParquet: one row per cell, one count column per day.",
+      "file:checksum": "122004e4c10ae8eb62ca85994a95afd26b486c54f59714ded35712daacb2273a991d"
     }
   },
   "links": [

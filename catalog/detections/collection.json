@@ -2,7 +2,7 @@
   "type": "Collection",
   "stac_version": "1.1.0",
   "stac_extensions": [
-    "https://schemas.portolan-sdi.org/portolan/v0.2.0/schema.json",
+    "https://schemas.portolan-sdi.org/portolan/v0.3.0/schema.json",
     "https://schemas.portolan-sdi.org/incubating/partition/v1.0.0/schema.json",
     "https://stac-extensions.github.io/table/v1.2.0/schema.json",
     "https://stac-extensions.github.io/web-map-links/v1.3.0/schema.json",
@@ -10,7 +10,7 @@
   ],
   "id": "detections",
   "title": "Active Fire Detections (MODIS and VIIRS)",
-  "description": "Global satellite active fire and thermal anomaly detections from NASA FIRMS, as one year-partitioned GeoParquet 2.0 table of 631,469,093 rows covering 2000 to 2026. Carries MODIS (Terra and Aqua, 1 km) and VIIRS (Suomi-NPP, NOAA-20, NOAA-21, 375 m). Near-real-time rows are appended hourly and replaced by science-quality rows as NASA finalizes them; the `quality` column says which is which. Rows are ordered by month and then by a Hilbert index, so a reader prunes on both time and space.\n\nA row is one PIXEL in one overpass that the algorithm flagged as hot -- not a fire, not a fire's location, and not its size. Three things mislead people most: raw detection counts are not comparable across years, because each new satellite adds overpasses (counts rose 5.5x when VIIRS joined MODIS in 2012, with no change in fire); `confidence` is an integer 0-100 for MODIS and l/n/h for VIIRS, with no published crosswalk; and `type` is NULL for every near-real-time row, so `type = 0` silently drops the most recent months. `frp` (fire radiative power, MW) is the column to sum when you want fire activity rather than a count of flagged pixels.\n\n[Explore it on a map](https://portolan-mirrors.github.io/firms-catalog/) - [README](README.md) - [agent guide](AGENTS.md) - [source and build](https://github.com/portolan-mirrors/firms-catalog)",
+  "description": "Global satellite active fire and thermal anomaly detections from NASA FIRMS, as one year-partitioned GeoParquet 2.0 table of 631,469,093 rows covering 2000 to 2026. Carries MODIS (Terra and Aqua, 1 km) and VIIRS (Suomi-NPP, NOAA-20, NOAA-21, 375 m). Near-real-time rows are appended hourly and replaced by science-quality rows as NASA finalizes them; the `quality` column says which is which. Rows are ordered along a Hilbert curve, so a bounding-box filter prunes row groups; the year in the path is what prunes time.\n\nA row is one PIXEL in one overpass that the algorithm flagged as hot -- not a fire, not a fire's location, and not its size. Three things mislead people most: raw detection counts are not comparable across years, because each new satellite adds overpasses (counts rose 5.5x when VIIRS joined MODIS in 2012, with no change in fire); `confidence` is an integer 0-100 for MODIS and l/n/h for VIIRS, with no published crosswalk; and `type` is NULL for every near-real-time row, so `type = 0` silently drops the most recent months. `frp` (fire radiative power, MW) is the column to sum when you want fire activity rather than a count of flagged pixels.\n\n[Explore it on a map](https://portolan-mirrors.github.io/firms-catalog/) - [README](README.md) - [agent guide](AGENTS.md) - [source and build](https://github.com/portolan-mirrors/firms-catalog)",
   "license": "CC0-1.0",
   "keywords": [
     "fire",
@@ -182,7 +182,8 @@
         "default"
       ],
       "file:size": 2350,
-      "file:checksum": "12202201aa36af69b64139209f899db51998dbdf996cc93464c58358bbb82e3763c8"
+      "file:checksum": "12202201aa36af69b64139209f899db51998dbdf996cc93464c58358bbb82e3763c8",
+      "description": "MapLibre style: aggregate cells colored by detection count, with individual detections drawn at high zoom."
     },
     "style-avg-frp": {
       "href": "./styles/avg-frp.json",
@@ -192,7 +193,8 @@
         "style"
       ],
       "file:size": 2353,
-      "file:checksum": "1220c9e9ac808f3103cbd1e3a4d5842e85b8c95f5c21cc958140a430cce5aa5a4a47"
+      "file:checksum": "1220c9e9ac808f3103cbd1e3a4d5842e85b8c95f5c21cc958140a430cce5aa5a4a47",
+      "description": "MapLibre style: aggregate cells colored by mean fire radiative power in megawatts."
     },
     "pmtiles": {
       "href": "./fire-latest.pmtiles",
@@ -205,7 +207,9 @@
       "pmtiles:layers": [
         "aggregate",
         "features"
-      ]
+      ],
+      "description": "Rolling seven-day window as vector tiles: aggregate cells at low zoom, individual detections from zoom 9. Rebuilt hourly.",
+      "file:size": 37802915
     },
     "aggregate-r5": {
       "href": "./alltime-r5.parquet",
@@ -215,7 +219,9 @@
         "data",
         "aggregate"
       ],
-      "file:size": 3364679
+      "file:size": 3364679,
+      "description": "The a5 resolution-5 grid behind the all-time tileset, as GeoParquet: one row per cell, one count column per month since November 2000.",
+      "file:checksum": "12201be57e84ef0aa2b5f66d84ed99f9b4cfa9b0966db476314bd582147dadd34169"
     },
     "aggregate-r8": {
       "href": "./alltime-r8.parquet",
@@ -225,7 +231,9 @@
         "data",
         "aggregate"
       ],
-      "file:size": 42756730
+      "file:size": 42756730,
+      "description": "The a5 resolution-8 grid behind the all-time tileset, as GeoParquet: one row per cell, one count column per month since November 2000.",
+      "file:checksum": "1220701bf34057bcd02cc2ae51a2c171fa44fe149b61b2b6ce1c79b0829f09d7c7ec"
     },
     "aggregate-r10": {
       "href": "./alltime-r10.parquet",
@@ -235,7 +243,9 @@
         "data",
         "aggregate"
       ],
-      "file:size": 319407523
+      "file:size": 319407523,
+      "description": "The a5 resolution-10 grid behind the all-time tileset, as GeoParquet: one row per cell, one count column per month since November 2000.",
+      "file:checksum": "1220f372d9996a8fbceab409eebb2afa6fd51eb2c7b4ecedf59a96b4583cae2e3c9d"
     },
     "thumbnail": {
       "href": "./detections.thumb.jpg",
@@ -245,7 +255,8 @@
         "thumbnail"
       ],
       "file:size": 64637,
-      "file:checksum": "1220d7a7dba00968a029dc360e5e41c8924c6caa8d5ae65cfe2c9e6a1b4f585aa490"
+      "file:checksum": "1220d7a7dba00968a029dc360e5e41c8924c6caa8d5ae65cfe2c9e6a1b4f585aa490",
+      "description": "Render of the default style over the rolling seven-day window."
     },
     "logo": {
       "href": "./detections.logo.png",
@@ -255,7 +266,19 @@
         "logo"
       ],
       "file:size": 68835,
-      "file:checksum": "12205244fa03544ed8c4ff4d8ef03ef27c8f3a8c98753a526ee3f4fed1eb84df1cc9"
+      "file:checksum": "12205244fa03544ed8c4ff4d8ef03ef27c8f3a8c98753a526ee3f4fed1eb84df1cc9",
+      "description": "Mirror logo, for catalog listings."
+    },
+    "style-day-night": {
+      "href": "./styles/day-night.json",
+      "type": "application/vnd.mapbox.style+json",
+      "title": "Day and night, last 7 days",
+      "description": "MapLibre style: aggregate cells colored by the share of night-time detections, with individual detections colored day or night at high zoom.",
+      "roles": [
+        "style"
+      ],
+      "file:size": 1795,
+      "file:checksum": "12202a66584b597f2b2127d7e2a6efc93122c5184c0b1c7a472c322e5ff0f22c1c69"
     }
   },
   "links": [
