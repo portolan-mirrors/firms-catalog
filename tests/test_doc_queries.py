@@ -21,7 +21,6 @@ Run: python3 tests/test_doc_queries.py
 from __future__ import annotations
 
 import re
-import sys
 import time
 from pathlib import Path
 
