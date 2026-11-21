@@ -46,7 +46,7 @@ partitioned collections, which conflicts with the partition extension's own
 `temporal` strategy; that is filed as
 [portolan-spec#196](https://github.com/portolan-sdi/portolan-spec/issues/196).
 
-**Pure Hilbert sort, no helper columns.** Earlier builds sorted by
+**Pure Hilbert sort.** Earlier builds sorted by
 `(_month, _hilbert)` and carried both as columns, which cost about 15% of file
 size for month-level row-group pruning. The current build sorts along the
 Hilbert curve alone with `gpio sort hilbert` and publishes no sort-key
