@@ -73,12 +73,15 @@ Query the whole record without downloading it:
 
 ```sql
 INSTALL spatial; LOAD spatial; INSTALL httpfs; LOAD httpfs;
+-- The bucket name contains dots, so TLS needs path-style addressing.
+SET s3_region = 'us-west-2'; SET s3_url_style = 'path';
 
 SELECT sensor, count(*) AS detections, round(avg(frp), 1) AS mean_frp_mw
 FROM read_parquet(
   's3://us-west-2.opendata.source.coop/portolan-mirrors/firms-catalog/detections/year=*/detections.parquet',
   hive_partitioning = true)
-WHERE year = 2020 AND _month = 8
+WHERE year = 2020
+  AND acq_date >= DATE '2020-08-01' AND acq_date < DATE '2020-09-01'
 GROUP BY sensor
 ORDER BY detections DESC;
 ```

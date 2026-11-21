@@ -1,0 +1,35 @@
+name: check-docs
+
+# Run every documented query against the published data, weekly.
+#
+# tests/test_doc_queries.py extracts the ```sql blocks from the documents
+# under catalog/ and runs them. The queries read hundreds of megabytes from
+# the public bucket, which is too heavy for every pull request and exactly
+# right for a schedule: what this catches is the published data drifting out
+# from under the documents, and that only happens with time.
+
+on:
+  schedule:
+    - cron: "41 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  queries:
+    runs-on: ubuntu-latest
+    # A full run measured 31 minutes from a residential connection on
+    # 2026-11-20; the heaviest single block read for 12.
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install DuckDB
+        run: pip install --quiet duckdb
+      - name: Run the documented queries
+        run: python3 tests/test_doc_queries.py

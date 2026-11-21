@@ -60,7 +60,7 @@ jobs:
       - name: Install tooling
         run: |
           set -euo pipefail
-          pip install --quiet duckdb boto3 'rashid>=0.1.8,<0.2.0' stac-check \
+          pip install --quiet duckdb boto3 'rashid>=0.4.0,<0.5.0' stac-check \
             'git+https://github.com/geoparquet/geoparquet-io.git@main'
           sudo apt-get update -qq && sudo apt-get install -y -qq tippecanoe
           PMT=$(curl -sSf https://api.github.com/repos/protomaps/go-pmtiles/releases/latest \

@@ -157,7 +157,8 @@
       "roles": [
         "data"
       ],
-      "file:size": 685630403
+      "file:size": 685630403,
+      "description": "Every MODIS and VIIRS detection acquired in 2022, as one GeoParquet 2.0 file with rows ordered along a Hilbert curve."
     },
     "pmtiles": {
       "href": "./fire-2022.pmtiles",
@@ -167,7 +168,8 @@
         "visual",
         "tiles"
       ],
-      "file:size": 837821089
+      "file:size": 837821089,
+      "description": "Vector tiles for 2022: aggregate cells at low zoom, individual detections at high zoom."
     },
     "style-avg-frp": {
       "href": "./styles/avg-frp.json",
@@ -177,7 +179,8 @@
         "style"
       ],
       "file:size": 2342,
-      "file:checksum": "1220cf4b156a51913b7a9a37ef25c5cb4a8b00aba0af0d7702c4d2d43cf3c8e1e324"
+      "file:checksum": "1220cf4b156a51913b7a9a37ef25c5cb4a8b00aba0af0d7702c4d2d43cf3c8e1e324",
+      "description": "MapLibre style: aggregate cells colored by mean fire radiative power in megawatts."
     },
     "style-default": {
       "href": "./styles/default.json",
@@ -188,7 +191,8 @@
         "default"
       ],
       "file:size": 2355,
-      "file:checksum": "122065296a933c7f02166c22054996c8c2b5dc9740ca42f641cfd571cb669c811223"
+      "file:checksum": "122065296a933c7f02166c22054996c8c2b5dc9740ca42f641cfd571cb669c811223",
+      "description": "MapLibre style: aggregate cells colored by detection count, with individual detections drawn at high zoom."
     },
     "aggregate-r5": {
       "href": "./aggregate-r5.parquet",
@@ -198,7 +202,9 @@
         "data",
         "aggregate"
       ],
-      "file:size": 1758753
+      "file:size": 1830009,
+      "description": "The a5 resolution-5 grid behind the 2022 tileset, as GeoParquet: one row per cell, one count column per day.",
+      "file:checksum": "122046a4c70792b46159b8a2145324848e30f3d66a55b31a5b0bb2954ba30fadb20c"
     },
     "aggregate-r8": {
       "href": "./aggregate-r8.parquet",
@@ -208,7 +214,9 @@
         "data",
         "aggregate"
       ],
-      "file:size": 14599797
+      "file:size": 18536502,
+      "description": "The a5 resolution-8 grid behind the 2022 tileset, as GeoParquet: one row per cell, one count column per day.",
+      "file:checksum": "1220e0b5e8605ed3d0082c948663928303197e4a82ae6cc08f1625861b948ef63186"
     }
   },
   "links": [

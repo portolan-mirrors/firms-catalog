@@ -32,7 +32,7 @@ detections/year=<YYYY>/detections.parquet
 ```
 
 GeoParquet 2.0 (native Parquet `GEOMETRY` logical type), zstd level 15,
-100k-row row groups, rows ordered by `(_month, _hilbert)`.
+100k-row row groups, rows ordered along a Hilbert curve.
 
 ## Design decisions worth knowing
 
@@ -46,10 +46,13 @@ partitioned collections, which conflicts with the partition extension's own
 `temporal` strategy; that is filed as
 [portolan-spec#196](https://github.com/portolan-sdi/portolan-spec/issues/196).
 
-**Sorted by `(_month, _hilbert)`, not pure Hilbert.** Pure Hilbert scatters every
-month across the file and removes month-level pruning. Sorting by month first and
-Hilbert within it keeps both. The two helper columns cost about 15% of file size
-and are documented in `catalog/AGENTS.md`.
+**Pure Hilbert sort.** Earlier builds sorted by
+`(_month, _hilbert)` and carried both as columns, which cost about 15% of file
+size for month-level row-group pruning. The current build sorts along the
+Hilbert curve alone with `gpio sort hilbert` and publishes no sort-key
+columns: date questions that only need counts go to the per-day aggregate
+grids instead, and `catalog/detections/AGENTS.md` measures what each layout
+prunes.
 
 **The API, not the yearly country archives.** FIRMS publishes yearly per-country
 zips that download much faster. They are clipped to country boundaries and drop
@@ -96,7 +99,7 @@ anything above 5.
 ## Working on this repository
 
 ```bash
-python3 -m venv .venv && .venv/bin/pip install 'rashid>=0.1.8,<0.2.0'
+python3 -m venv .venv && .venv/bin/pip install 'rashid>=0.4.0,<0.5.0'
 python3 tests/run_all.py          # gates: conformance, links, STAC validity
 node tests/run_js.mjs             # gates: the explorer's modules
 python3 tests/test_links.py --remote   # also resolve the data at the bucket

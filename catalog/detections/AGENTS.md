@@ -225,10 +225,13 @@ SELECT a5_cell, count, round(sum_frp) AS frp
 FROM 'https://data.source.coop/portolan-mirrors/firms-catalog/detections/alltime-r5.parquet'
 ORDER BY count DESC LIMIT 10;
 
--- The r5 grid across every year, as one table.
+-- The r5 grid across every year, as one table. The glob needs the bucket
+-- URL: a glob is a listing, and plain HTTP cannot list. The bucket name
+-- contains dots, so TLS needs path-style addressing.
+SET s3_region = 'us-west-2'; SET s3_url_style = 'path';
 SELECT year, sum(count) AS detections
 FROM read_parquet(
-  'https://data.source.coop/portolan-mirrors/firms-catalog/detections/year=*/aggregate-r5.parquet',
+  's3://us-west-2.opendata.source.coop/portolan-mirrors/firms-catalog/detections/year=*/aggregate-r5.parquet',
   hive_partitioning = true)
 GROUP BY 1 ORDER BY 1;
 ```
@@ -237,10 +240,10 @@ Pick `r5` for continental questions and `r8` for regional ones: r5 is roughly
 7,600 cells globally and r8 roughly 150,000 **[derived]**. `r10` exists only
 for all time, where there is no raw-point layer to fall back on.
 
-**The all-time files lag the year files.** They totalled 614,362,367 detections
-when last built, against 631,316,915 across the year files **[derived]** —
-the all-time archive is rebuilt less often than the years it summarises. Use
-the year files when the answer has to be current.
+**The all-time files lag the year files.** They totalled 614,362,367
+detections when last built, about 17 million short of the year files at that
+moment **[derived]** — the all-time archive is rebuilt less often than the
+years it summarises. Use the year files when the answer has to be current.
 
 
 ## Quirks that produce silently wrong answers
@@ -300,14 +303,16 @@ pixels are 1 km; do not treat a point as a precise ignition site.
 
 ## Worked queries
 
-Every query below was run before it was written down. They were verified
-against a locally built year file with the identical layout while the catalog
-was being prepared; the `s3://` paths resolve once the data is published.
+Every query below was run against the published data before it was written
+down, and CI re-runs every documented query against the published data on a
+weekly schedule.
 
 Count everything, one glob across the whole record:
 
 ```sql
 INSTALL spatial; LOAD spatial; INSTALL httpfs; LOAD httpfs;
+-- The bucket name contains dots, so TLS needs path-style addressing.
+SET s3_region = 'us-west-2'; SET s3_url_style = 'path';
 SELECT count(*) FROM read_parquet(
   's3://us-west-2.opendata.source.coop/portolan-mirrors/firms-catalog/detections/year=*/detections.parquet',
   hive_partitioning = true);
@@ -318,7 +323,9 @@ groups, because the sort is spatial, so this reads 2020 and filters:
 
 ```sql
 SELECT sensor, count(*) n, round(avg(frp), 1) mean_frp
-FROM read_parquet('.../detections/year=*/detections.parquet', hive_partitioning = true)
+FROM read_parquet(
+  's3://us-west-2.opendata.source.coop/portolan-mirrors/firms-catalog/detections/year=*/detections.parquet',
+  hive_partitioning = true)
 WHERE year = 2020 AND acq_date >= DATE '2020-08-01' AND acq_date < DATE '2020-09-01'
 GROUP BY sensor ORDER BY n DESC;
 ```
@@ -331,16 +338,18 @@ January 2020 Australian fires:
 
 ```sql
 SELECT acq_datetime, satellite, frp, ST_X(geometry) lon, ST_Y(geometry) lat
-FROM read_parquet('.../detections/year=*/detections.parquet', hive_partitioning = true)
+FROM read_parquet(
+  's3://us-west-2.opendata.source.coop/portolan-mirrors/firms-catalog/detections/year=*/detections.parquet',
+  hive_partitioning = true)
 WHERE year = 2020 AND daynight = 'N' AND frp > 100
   AND ST_Within(geometry, ST_MakeEnvelope(140, -40, 155, -25))
 ORDER BY frp DESC LIMIT 5;
 ```
 
 ```
-2020-01-04 15:21:00  Suomi-NPP  1761.2   149.293  -37.155
-2020-01-31 15:14:00  Suomi-NPP  1304.21  148.958  -35.775
-2020-01-04 15:21:00  Suomi-NPP   535.65  149.291  -37.164
+2020-01-31 14:49:00  Aqua  4031.8  148.952  -35.767
+2020-01-31 14:49:00  Aqua  4003.3  148.949  -35.758
+2020-01-31 14:49:00  Aqua  3717.2  148.956  -35.755
 ```
 
 ## Join keys

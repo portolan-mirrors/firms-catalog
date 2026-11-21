@@ -155,7 +155,8 @@
       "roles": [
         "data"
       ],
-      "file:size": 80751206
+      "file:size": 80751206,
+      "description": "Every MODIS and VIIRS detection acquired in 2005, as one GeoParquet 2.0 file with rows ordered along a Hilbert curve."
     },
     "pmtiles": {
       "href": "./fire-2005.pmtiles",
@@ -165,7 +166,8 @@
         "visual",
         "tiles"
       ],
-      "file:size": 239070904
+      "file:size": 239070904,
+      "description": "Vector tiles for 2005: aggregate cells at low zoom, individual detections at high zoom."
     },
     "style-avg-frp": {
       "href": "./styles/avg-frp.json",
@@ -175,7 +177,8 @@
         "style"
       ],
       "file:size": 2343,
-      "file:checksum": "1220ef684633a5626fb909dd4c00b736c4988ae25da1b15604b8104a308988985405"
+      "file:checksum": "1220ef684633a5626fb909dd4c00b736c4988ae25da1b15604b8104a308988985405",
+      "description": "MapLibre style: aggregate cells colored by mean fire radiative power in megawatts."
     },
     "style-default": {
       "href": "./styles/default.json",
@@ -186,7 +189,8 @@
         "default"
       ],
       "file:size": 2346,
-      "file:checksum": "12206ecce56e52c00b62d8c41a7facb97ea92cad723a197dc1f4a6d62d532b078b3b"
+      "file:checksum": "12206ecce56e52c00b62d8c41a7facb97ea92cad723a197dc1f4a6d62d532b078b3b",
+      "description": "MapLibre style: aggregate cells colored by detection count, with individual detections drawn at high zoom."
     },
     "aggregate-r5": {
       "href": "./aggregate-r5.parquet",
@@ -196,7 +200,9 @@
         "data",
         "aggregate"
       ],
-      "file:size": 1090994
+      "file:size": 1076930,
+      "description": "The a5 resolution-5 grid behind the 2005 tileset, as GeoParquet: one row per cell, one count column per day.",
+      "file:checksum": "1220066edfe931728f7539c114187a067581f01cc885a0ea0a2a1714d13611d75c28"
     },
     "aggregate-r8": {
       "href": "./aggregate-r8.parquet",
@@ -206,7 +212,9 @@
         "data",
         "aggregate"
       ],
-      "file:size": 8007126
+      "file:size": 11123770,
+      "description": "The a5 resolution-8 grid behind the 2005 tileset, as GeoParquet: one row per cell, one count column per day.",
+      "file:checksum": "12201d410af5e308b1d17dad7b90034ebc9cad1afbba0db76fb4aa2ae356537c1931"
     }
   },
   "links": [

@@ -33,6 +33,13 @@ from pathlib import Path
 import duckdb
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from asset_text import (  # noqa: E402
+    STYLE_DESCRIPTIONS,
+    STYLE_FALLBACK,
+    item_aggregate_description,
+    item_data_description,
+    item_pmtiles_description,
+)
 from net import head  # noqa: E402
 from schema import stac_columns  # noqa: E402
 
@@ -156,11 +163,22 @@ def declared_size(size, previous: dict | None) -> dict:
     An int is what the server said. None means it said the object is missing,
     so there is no size to declare. UNREACHABLE means nobody said anything,
     and the honest answer is whatever the item already claimed.
+
+    A declared checksum is kept only while the declared size still matches:
+    the size is the cheap proxy for "the bytes did not change", and a
+    checksum that outlives its bytes is worse than none.
     """
     if isinstance(size, int):
-        return {"file:size": size}
+        out = {"file:size": size}
+        if (previous and previous.get("file:size") == size
+                and "file:checksum" in previous):
+            out["file:checksum"] = previous["file:checksum"]
+        return out
     if size is UNREACHABLE and previous and "file:size" in previous:
-        return {"file:size": previous["file:size"]}
+        out = {"file:size": previous["file:size"]}
+        if "file:checksum" in previous:
+            out["file:checksum"] = previous["file:checksum"]
+        return out
     return {}
 
 
@@ -182,7 +200,11 @@ def main() -> int:
     ap.add_argument("--catalog", required=True, help="tracked catalog/ directory")
     ap.add_argument("--key", required=True, help="FIRMS map key, for availability")
     ap.add_argument("--years", help="comma list; default = every year that resolves")
+    ap.add_argument("--staged", default="./staging/publish/detections",
+                    help="local data directory; when a year's file is here, "
+                         "file:size and file:checksum come from its bytes")
     a = ap.parse_args()
+    staged = Path(a.staged)
 
     cat = Path(a.catalog)
     coll_path = cat / "detections" / "collection.json"
@@ -253,8 +275,14 @@ def main() -> int:
                     "href": "./detections.parquet",
                     "type": "application/vnd.apache.parquet",
                     "title": f"{y} detections, GeoParquet 2.0",
+                    "description": item_data_description(y),
                     "roles": ["data"],
-                    **declared_size(remote_size(url), prior.get("data")),
+                    # Checksum only when the year's bytes are staged locally,
+                    # which they are during consolidation. Hashing a published
+                    # year again would download most of a gigabyte.
+                    **(local_bytes(lf)
+                       if (lf := staged / f"year={y}" / "detections.parquet").is_file()
+                       else declared_size(remote_size(url), prior.get("data"))),
                 },
             },
             "links": [
@@ -283,18 +311,23 @@ def main() -> int:
                 if k == "pmtiles" or k.startswith("style-"):
                     item["assets"][k] = v
         elif tsize and (sdir / "default.json").exists():
+            tf = staged / f"year={y}" / f"fire-{y}.pmtiles"
             item["assets"]["pmtiles"] = {
                 "href": f"./fire-{y}.pmtiles",
                 "type": "application/vnd.pmtiles",
                 "title": f"{y} detections, vector tiles",
+                "description": item_pmtiles_description(y),
                 "roles": ["visual", "tiles"],
-                "file:size": tsize,
+                **(local_bytes(tf) if tf.is_file()
+                   else declared_size(tsize, prior.get("pmtiles"))),
             }
             for sf in sorted(sdir.glob("*.json")):
                 item["assets"][f"style-{sf.stem}"] = {
                     "href": f"./styles/{sf.name}",
                     "type": "application/vnd.mapbox.style+json",
                     "title": json.loads(sf.read_text()).get("name", sf.stem),
+                    "description": STYLE_DESCRIPTIONS.get(sf.stem,
+                                                          STYLE_FALLBACK),
                     "roles": ["style", "default"] if sf.stem == "default"
                              else ["style"],
                     **local_bytes(sf),
@@ -323,12 +356,15 @@ def main() -> int:
                 continue
             if not asize:
                 continue
+            af = staged / f"year={y}" / f"aggregate-r{lvl}.parquet"
             item["assets"][f"aggregate-r{lvl}"] = {
                 "href": f"./aggregate-r{lvl}.parquet",
                 "type": "application/vnd.apache.parquet",
                 "title": f"{y} detections aggregated to a5 r{lvl}, daily columns",
+                "description": item_aggregate_description(y, lvl),
                 "roles": ["data", "aggregate"],
-                "file:size": asize,
+                **(local_bytes(af) if af.is_file()
+                   else declared_size(asize, prior.get(f"aggregate-r{lvl}"))),
             }
 
         d = cat / "detections" / f"year={y}"
