@@ -16,6 +16,7 @@ the call chain on every import without changing behaviour.
 """
 from __future__ import annotations
 
+import http.client
 import socket
 import time
 import urllib.error
@@ -56,19 +57,40 @@ def head(url: str, *, user_agent: str = USER_AGENT, timeout: int = 30,
     wrong, and the CDN in front of this catalog starts returning them when a
     gate probes a hundred and fifty objects back to back.
     """
+    def length(response):
+        n = response.headers.get("content-length")
+        return int(n) if n else None
+
+    return _ask(url, "HEAD", length, user_agent, timeout, tries)
+
+
+def get(url: str, *, user_agent: str = USER_AGENT, timeout: int = 30,
+        tries: int = 3) -> tuple[int | str, bytes | None]:
+    """(status, body) for url, on the same terms as head().
+
+    For the small JSON a tool has to read rather than weigh: an int status when
+    the server answered, with the body on a 200, and a string when it never
+    did. A body that breaks off part-way is the network's failure and not the
+    object's, so it is retried with the rest.
+    """
+    return _ask(url, "GET", lambda response: response.read(),
+                user_agent, timeout, tries)
+
+
+def _ask(url, method, read, user_agent, timeout, tries):
+    """One request under head()'s retry rules; `read` takes what is wanted."""
     last = "no attempt"
     for attempt in range(tries):
         request = urllib.request.Request(
-            url, method="HEAD", headers={"User-Agent": user_agent})
+            url, method=method, headers={"User-Agent": user_agent})
         try:
             with urllib.request.urlopen(request, timeout=timeout) as response:
-                length = response.headers.get("content-length")
-                return response.status, int(length) if length else None
+                return response.status, read(response)
         except urllib.error.HTTPError as exc:
             if not retryable(exc.code):
                 return exc.code, None
             last = exc.code
-        except (urllib.error.URLError, OSError) as exc:
+        except (urllib.error.URLError, OSError, http.client.HTTPException) as exc:
             last = f"{type(exc).__name__}: {exc}"
         if attempt + 1 < tries:
             time.sleep(2 ** attempt)

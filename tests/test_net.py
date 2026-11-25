@@ -155,6 +155,50 @@ urllib.request.urlopen = lambda request, timeout=None: (
 status, length = head("https://example.invalid/x", timeout=1)
 check((status, length) == (200, 7), f"a served object returns (200, 7), got {(status, length)}")
 
+# get() is head() with a body, and nothing else about it may differ: the tool
+# that reads a published item decides whether to stop a publish on exactly the
+# distinction head() draws, between an answer about the object and no answer.
+import http.client  # noqa: E402
+
+from net import get  # noqa: E402
+
+
+class FakeBody(FakeResponse):
+    def read(self):
+        return b'{"id": "2026"}'
+
+
+methods: list[str] = []
+urllib.request.urlopen = lambda request, timeout=None: (
+    methods.append(request.get_method()) or FakeBody())
+status, body = get("https://example.invalid/x", timeout=1)
+check((status, body) == (200, b'{"id": "2026"}'),
+      f"a served object returns its body, got {(status, body)}")
+check(methods == ["GET"], f"with one GET, saw {methods}")
+
+attempts.clear()
+slept.clear()
+urllib.request.urlopen = fake_urlopen
+next_error[0] = urllib.error.HTTPError("u", 404, "Not Found", {}, None)
+status, body = get("https://example.invalid/x", timeout=1, tries=3)
+check((status, body, len(attempts)) == (404, None, 1),
+      f"a 404 is final for a GET too, got {(status, body, len(attempts))}")
+
+attempts.clear()
+next_error[0] = urllib.error.HTTPError("u", 503, "busy", {}, None)
+status, body = get("https://example.invalid/x", timeout=1, tries=3)
+check((status, body, len(attempts)) == (503, None, 3),
+      f"a 503 is retried and then reported, got {(status, body, len(attempts))}")
+
+# A body that stops part-way is not an OSError, and unhandled it would take
+# the run down with a traceback instead of a finding.
+attempts.clear()
+next_error[0] = http.client.IncompleteRead(b'{"id"')
+status, body = get("https://example.invalid/x", timeout=1, tries=3)
+check(not isinstance(status, int) and body is None and len(attempts) == 3,
+      f"a truncated body is retried as a transport failure, got "
+      f"{(status, body, len(attempts))}")
+
 urllib.request.urlopen = real_urlopen
 _net.time.sleep = _real_sleep
 
