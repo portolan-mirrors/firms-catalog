@@ -117,6 +117,20 @@ jobs:
             done
           done
 
+      # The years being consolidated get a new item further down. This is for
+      # the ones that do not: publish.py uploads every item in the checkout,
+      # and a year committed part-way through and since finished -- 2026, from
+      # the middle of January 2027 -- would go back to its committed copy on
+      # every run, with nothing left to regenerate it. See refresh-nrt.
+      #
+      # Before the tiles are rebuilt, because build_year.sh writes the year's
+      # styles and corrects the item's declaration of them, and pulling after
+      # it would put yesterday's styles over today's.
+      - name: Bring the items level with the bucket
+        run: |
+          python3 tools/pull_items.py --catalog catalog \
+            --data ./staging/publish/detections
+
       # Before the merge, so a window that no longer reaches the archive is
       # bridged rather than refused. Whole days touched by a hole are
       # refetched and replace the archive's copy of them.

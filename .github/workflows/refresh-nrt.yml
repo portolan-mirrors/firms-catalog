@@ -105,6 +105,23 @@ jobs:
             --out catalog/detections/styles --tiles ../fire-latest.pmtiles \
             --suffix ", last 7 days"
 
+      # Nothing is committed, so the current year's item in this checkout is
+      # the one a human last committed, and publish.py uploads catalog/ as it
+      # finds it. Without this step every hourly run put that copy back over
+      # the item consolidate-year had regenerated that morning: on 2026-11-25
+      # the published 2026 item still ended on 15 September, two months and
+      # eleven million rows behind the archive it sat beside.
+      #
+      # Before the collection, because the collection's row count and the
+      # window's cutoff are read from the items on disk. A failure here stops
+      # the run before anything is uploaded, which is the point: an item that
+      # cannot be read is not known to be older than the one about to replace
+      # it.
+      - name: Bring the items level with the bucket
+        run: |
+          python3 tools/pull_items.py --catalog catalog \
+            --data ./staging/publish/detections
+
       - name: Regenerate collection metadata
         run: |
           cp catalog/detections/detections.thumb.jpg ./staging/publish/ || true

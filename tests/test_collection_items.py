@@ -140,14 +140,27 @@ def build(data, out_parent):
 
 with tempfile.TemporaryDirectory() as tmp:
     tmp = Path(tmp)
+    cat = tmp / "cat"
+    shutil.copytree(ROOT / "catalog" / "detections", cat)
     # Two windows, one side of the published end each. The count is compared
     # between the two runs and not against the collection on disk: the hourly
     # refresh regenerates that file in the step before the gates, so by the
     # time this runs it already carries a counted window of its own.
-    after = stage_window(tmp / "after", "2026-09-20 00:00:00", 72)
-    before = stage_window(tmp / "before", "2026-01-01 00:00:00", 72)
-    cat = tmp / "cat"
-    shutil.copytree(ROOT / "catalog" / "detections", cat)
+    #
+    # Placed from the item's own end, not from a date. They were fixed at
+    # 1 January and 20 September, which held only while the 2026 item in the
+    # checkout was the one committed on 15 September -- and the scheduled runs
+    # now take the published item before these gates, which ends this morning.
+    # A window pinned to September then sits wholly behind it, counts nothing,
+    # and fails every hourly run on a catalog that is correct.
+    from datetime import datetime, timedelta  # noqa: E402
+
+    item_2026 = json.loads((cat / "year=2026" / "2026.json").read_text())
+    end = datetime.fromisoformat(
+        item_2026["properties"]["end_datetime"].replace("Z", "")
+    ).replace(minute=0, second=0, microsecond=0)
+    after = stage_window(tmp / "after", end + timedelta(hours=1), 72)
+    before = stage_window(tmp / "before", end - timedelta(hours=100), 72)
 
     r_after, doc_after = build(after, cat)
     check(r_after.returncode == 0,

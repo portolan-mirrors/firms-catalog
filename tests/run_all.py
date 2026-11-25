@@ -21,6 +21,7 @@ TESTS = [
     "test_merge_live.py",
     "test_fill_gaps.py",
     "test_aggregate_totals.py",
+    "test_pull_items.py",
     "test_collection_items.py",
     "test_item_assets.py",
     "test_stac_valid.py",
